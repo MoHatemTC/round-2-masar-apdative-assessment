@@ -1,0 +1,503 @@
+[
+  {
+    "source_ref": "AIE-1-Q01",
+    "track": {
+      "code": "AIE",
+      "name": "AI Engineering",
+      "domain": "technical",
+      "description": "Ship LLM-powered features end-to-end: prompts, RAG, agents, evaluation, and production integration."
+    },
+    "sub_competency": {
+      "code": "AIE.1",
+      "name": "LLM & Prompt Engineering"
+    },
+    "tool_type": "mcq",
+    "difficulty": "easy",
+    "rubric": "Knows how to force reliable structured output from an LLM.",
+    "body": "You need an LLM to return data your code can parse every time. Which approach is the most reliable?",
+    "payload": {
+      "options": [
+        {
+          "id": "a",
+          "text": "Ask nicely in the prompt to 'return JSON' and hope for the best"
+        },
+        {
+          "id": "b",
+          "text": "Use function-calling / a structured-output schema and validate the result against it"
+        },
+        {
+          "id": "c",
+          "text": "Raise the temperature so the model is more creative with formatting"
+        },
+        {
+          "id": "d",
+          "text": "Parse the response with a regular expression after the fact"
+        }
+      ],
+      "answer_key": {
+        "correct_id": "b"
+      },
+      "explanation": "A declared schema (function-calling / structured outputs) plus validation is the robust way to guarantee parseable output; prompt-only requests drift."
+    }
+  },
+  {
+    "source_ref": "AIE-1-Q02",
+    "track": {
+      "code": "AIE",
+      "name": "AI Engineering",
+      "domain": "technical"
+    },
+    "sub_competency": {
+      "code": "AIE.1",
+      "name": "LLM & Prompt Engineering"
+    },
+    "tool_type": "voice",
+    "difficulty": "medium",
+    "rubric": "Can reason about prompt design and iteration.",
+    "body": "Walk me through how you'd design and iterate on a prompt for a feature that summarizes support tickets into a fixed set of fields. How would you know it's good enough to ship?",
+    "payload": {
+      "evaluation_criteria": [
+        "Starts from the desired output shape / fields and works backward to the prompt",
+        "Mentions few-shot examples, constraints, and handling edge cases (empty/ambiguous tickets)",
+        "Defines a concrete 'good enough' bar (a small labelled set, target accuracy) rather than eyeballing",
+        "Describes iterating on failures rather than one-shot prompting"
+      ],
+      "time_limit_seconds": 150
+    }
+  },
+  {
+    "source_ref": "AIE-1-Q03",
+    "track": {
+      "code": "AIE",
+      "name": "AI Engineering",
+      "domain": "technical"
+    },
+    "sub_competency": {
+      "code": "AIE.1",
+      "name": "LLM & Prompt Engineering"
+    },
+    "tool_type": "mcq",
+    "difficulty": "easy",
+    "rubric": "Understands when to use system vs user roles and few-shot.",
+    "body": "Where should stable, reusable instructions (tone, output rules, guardrails) live in a chat-completions call?",
+    "payload": {
+      "options": [
+        {
+          "id": "a",
+          "text": "Repeated inside every user message"
+        },
+        {
+          "id": "b",
+          "text": "In the system message"
+        },
+        {
+          "id": "c",
+          "text": "In the model's temperature setting"
+        },
+        {
+          "id": "d",
+          "text": "In the function name"
+        }
+      ],
+      "answer_key": {
+        "correct_id": "b"
+      },
+      "explanation": "Durable behaviour belongs in the system message; user messages carry the per-request content."
+    }
+  },
+  {
+    "source_ref": "AIE-2-Q01",
+    "track": {
+      "code": "AIE",
+      "name": "AI Engineering",
+      "domain": "technical"
+    },
+    "sub_competency": {
+      "code": "AIE.2",
+      "name": "RAG & Vector Search"
+    },
+    "tool_type": "mcq",
+    "difficulty": "easy",
+    "rubric": "Understands what embeddings enable in retrieval.",
+    "body": "In a Retrieval-Augmented Generation (RAG) system, what is the primary purpose of embeddings?",
+    "payload": {
+      "options": [
+        {
+          "id": "a",
+          "text": "To compress the model's weights for faster inference"
+        },
+        {
+          "id": "b",
+          "text": "To represent text as vectors so semantically similar chunks can be found by nearest-neighbour search"
+        },
+        {
+          "id": "c",
+          "text": "To encrypt the documents before storage"
+        },
+        {
+          "id": "d",
+          "text": "To translate the documents into English"
+        }
+      ],
+      "answer_key": {
+        "correct_id": "b"
+      },
+      "explanation": "Embeddings map text into a vector space where distance approximates semantic similarity, powering retrieval."
+    }
+  },
+  {
+    "source_ref": "AIE-2-Q02",
+    "track": {
+      "code": "AIE",
+      "name": "AI Engineering",
+      "domain": "technical"
+    },
+    "sub_competency": {
+      "code": "AIE.2",
+      "name": "RAG & Vector Search"
+    },
+    "tool_type": "voice",
+    "difficulty": "hard",
+    "rubric": "Can design an end-to-end RAG pipeline and name its failure modes.",
+    "body": "Design a RAG pipeline that answers questions over a company's internal docs. Describe the stages, and tell me two ways it can return wrong answers and how you'd mitigate them.",
+    "payload": {
+      "evaluation_criteria": [
+        "Names the core stages: chunk → embed → store → retrieve top-k → augment prompt → generate",
+        "Identifies failure modes (bad chunking, low-recall retrieval, hallucination beyond context)",
+        "Proposes concrete mitigations (chunk overlap, re-ranking, citing sources, grounding instructions)",
+        "Mentions how retrieval quality is measured, not just asserted"
+      ],
+      "time_limit_seconds": 180
+    }
+  },
+  {
+    "source_ref": "AIE-3-Q01",
+    "track": {
+      "code": "AIE",
+      "name": "AI Engineering",
+      "domain": "technical"
+    },
+    "sub_competency": {
+      "code": "AIE.3",
+      "name": "Agentic Workflows & Tool Use"
+    },
+    "tool_type": "mcq",
+    "difficulty": "medium",
+    "rubric": "Understands the tool-use loop.",
+    "body": "In a tool-using agent, what does the model actually return when it decides to use a tool?",
+    "payload": {
+      "options": [
+        {
+          "id": "a",
+          "text": "The final answer directly — tools are ignored at runtime"
+        },
+        {
+          "id": "b",
+          "text": "A structured tool call (name + arguments) that your code executes, then feeds the result back to the model"
+        },
+        {
+          "id": "c",
+          "text": "The source code of the tool it wants to run"
+        },
+        {
+          "id": "d",
+          "text": "A probability distribution over all tools that you average"
+        }
+      ],
+      "answer_key": {
+        "correct_id": "b"
+      },
+      "explanation": "The model emits a tool name + arguments; the application runs the tool and returns the observation so the model can continue."
+    }
+  },
+  {
+    "source_ref": "AIE-3-Q02",
+    "track": {
+      "code": "AIE",
+      "name": "AI Engineering",
+      "domain": "technical"
+    },
+    "sub_competency": {
+      "code": "AIE.3",
+      "name": "Agentic Workflows & Tool Use"
+    },
+    "tool_type": "coding",
+    "difficulty": "medium",
+    "rubric": "Can implement a simple tool-dispatch step.",
+    "body": "Implement `dispatch(tool_name, args)` that routes to the right tool. Support 'add' (returns args['a'] + args['b']) and 'upper' (returns args['text'].upper()). For any unknown tool, return the string 'unknown tool'.",
+    "payload": {
+      "language": "python",
+      "starter_code": "def dispatch(tool_name, args):\n    # route to the right tool and return its result\n    pass",
+      "test_cases": [
+        {
+          "input": "dispatch('add', {'a': 2, 'b': 3})",
+          "expected_output": "5"
+        },
+        {
+          "input": "dispatch('upper', {'text': 'hi'})",
+          "expected_output": "HI"
+        },
+        {
+          "input": "dispatch('nope', {})",
+          "expected_output": "unknown tool"
+        }
+      ],
+      "expected_approach": "Dictionary or if/elif dispatch on tool_name; default branch returns 'unknown tool'."
+    }
+  },
+  {
+    "source_ref": "AIE-3-Q03",
+    "track": {
+      "code": "AIE",
+      "name": "AI Engineering",
+      "domain": "technical"
+    },
+    "sub_competency": {
+      "code": "AIE.3",
+      "name": "Agentic Workflows & Tool Use"
+    },
+    "tool_type": "voice",
+    "difficulty": "medium",
+    "rubric": "Understands how to keep multi-step agents reliable.",
+    "body": "A multi-step agent sometimes loops forever or calls the wrong tool. What controls would you add to keep it reliable in production?",
+    "payload": {
+      "evaluation_criteria": [
+        "Mentions a step/iteration budget or max-tool-calls to prevent infinite loops",
+        "Discusses validating tool arguments and handling tool errors gracefully",
+        "Mentions logging/tracing each step for debugging",
+        "Considers a fallback or 'give up' path when the agent is stuck"
+      ],
+      "time_limit_seconds": 150
+    }
+  },
+  {
+    "source_ref": "AIE-4-Q01",
+    "track": {
+      "code": "AIE",
+      "name": "AI Engineering",
+      "domain": "technical"
+    },
+    "sub_competency": {
+      "code": "AIE.4",
+      "name": "Evaluation & Quality"
+    },
+    "tool_type": "mcq",
+    "difficulty": "easy",
+    "rubric": "Knows the point of a regression eval.",
+    "body": "You changed a prompt to fix one bad case. What is the main purpose of running your eval set afterwards?",
+    "payload": {
+      "options": [
+        {
+          "id": "a",
+          "text": "To make the model faster"
+        },
+        {
+          "id": "b",
+          "text": "To catch regressions — cases that used to pass but now fail because of the change"
+        },
+        {
+          "id": "c",
+          "text": "To reduce the API bill"
+        },
+        {
+          "id": "d",
+          "text": "To retrain the base model"
+        }
+      ],
+      "answer_key": {
+        "correct_id": "b"
+      },
+      "explanation": "An eval/regression set verifies a fix didn't silently break previously-passing cases."
+    }
+  },
+  {
+    "source_ref": "AIE-4-Q02",
+    "track": {
+      "code": "AIE",
+      "name": "AI Engineering",
+      "domain": "technical"
+    },
+    "sub_competency": {
+      "code": "AIE.4",
+      "name": "Evaluation & Quality"
+    },
+    "tool_type": "voice",
+    "difficulty": "hard",
+    "rubric": "Can stand up an evaluation pipeline for an LLM feature.",
+    "body": "How would you build an evaluation pipeline for an LLM feature where the 'right' answer isn't a single exact string? Talk about the eval set, scoring, and how it plugs into your workflow.",
+    "payload": {
+      "evaluation_criteria": [
+        "Builds a representative labelled eval set covering normal + edge cases",
+        "Chooses appropriate scoring (exact-match where possible, rubric/LLM-as-judge or similarity for open-ended)",
+        "Runs it automatically (CI / before deploy) and tracks a score over time",
+        "Explains acting on failures — triaging and adding new failures back into the set"
+      ],
+      "time_limit_seconds": 180
+    }
+  },
+  {
+    "source_ref": "AIE-4-Q03",
+    "track": {
+      "code": "AIE",
+      "name": "AI Engineering",
+      "domain": "technical"
+    },
+    "sub_competency": {
+      "code": "AIE.4",
+      "name": "Evaluation & Quality"
+    },
+    "tool_type": "visualization",
+    "difficulty": "medium",
+    "rubric": "Can read eval metrics and decide whether to ship.",
+    "body": "A new prompt version raised overall accuracy from 82% to 86%, but on the 'refunds' category it dropped from 90% to 71%. Should you ship it, and what would you do next?",
+    "payload": {
+      "expected_insights": [
+        "Notices the overall gain hides a serious per-category regression on refunds",
+        "Concludes you should NOT ship as-is (or ship gated) because a key category got worse",
+        "Proposes drilling into the refunds failures and fixing before rollout",
+        "Values per-segment metrics over a single headline number"
+      ],
+      "data": "Overall accuracy 82% → 86%. Per-category: refunds 90% → 71%, billing 80% → 88%, general 79% → 85%."
+    }
+  },
+  {
+    "source_ref": "AIE-5-Q01",
+    "track": {
+      "code": "AIE",
+      "name": "AI Engineering",
+      "domain": "technical"
+    },
+    "sub_competency": {
+      "code": "AIE.5",
+      "name": "Python & Async API Integration"
+    },
+    "tool_type": "coding",
+    "difficulty": "medium",
+    "rubric": "Solid Python: parse and transform JSON-like data.",
+    "body": "Write `top_model(usage)` that takes a list of dicts like {'model': 'gpt', 'tokens': 100} and returns the model name with the highest total tokens across the list. If the list is empty, return None.",
+    "payload": {
+      "language": "python",
+      "starter_code": "def top_model(usage):\n    pass",
+      "test_cases": [
+        {
+          "input": "top_model([{'model':'a','tokens':100},{'model':'b','tokens':250},{'model':'a','tokens':200}])",
+          "expected_output": "a"
+        },
+        {
+          "input": "top_model([{'model':'x','tokens':5}])",
+          "expected_output": "x"
+        },
+        {
+          "input": "top_model([])",
+          "expected_output": "None"
+        }
+      ],
+      "expected_approach": "Aggregate tokens per model in a dict, then return the key with the max value; guard the empty case."
+    }
+  },
+  {
+    "source_ref": "AIE-5-Q02",
+    "track": {
+      "code": "AIE",
+      "name": "AI Engineering",
+      "domain": "technical"
+    },
+    "sub_competency": {
+      "code": "AIE.5",
+      "name": "Python & Async API Integration"
+    },
+    "tool_type": "mcq",
+    "difficulty": "medium",
+    "rubric": "Understands why async matters for API-bound work.",
+    "body": "You need to call an LLM API 50 times independently. Why is asyncio (or concurrent requests) a big win here versus a plain for-loop?",
+    "payload": {
+      "options": [
+        {
+          "id": "a",
+          "text": "It makes each individual API response return faster"
+        },
+        {
+          "id": "b",
+          "text": "The calls are I/O-bound, so overlapping the waiting means total time approaches the slowest call, not the sum"
+        },
+        {
+          "id": "c",
+          "text": "It uses multiple CPU cores to speed up the model"
+        },
+        {
+          "id": "d",
+          "text": "It reduces the number of tokens each call uses"
+        }
+      ],
+      "answer_key": {
+        "correct_id": "b"
+      },
+      "explanation": "API calls are I/O-bound; concurrency overlaps the idle wait time so total latency is bounded by the slowest call rather than their sum."
+    }
+  },
+  {
+    "source_ref": "AIE-6-Q01",
+    "track": {
+      "code": "AIE",
+      "name": "AI Engineering",
+      "domain": "technical"
+    },
+    "sub_competency": {
+      "code": "AIE.6",
+      "name": "Production, Cost & Observability"
+    },
+    "tool_type": "voice",
+    "difficulty": "hard",
+    "rubric": "Can reason about the latency/cost/quality trade-off with real metrics.",
+    "body": "A feature works but is too slow and too expensive in production. Without hurting quality much, what levers would you pull, and how would you decide which ones actually helped?",
+    "payload": {
+      "evaluation_criteria": [
+        "Names concrete levers (smaller/cheaper model for easy cases, caching, shorter prompts/context, batching, streaming)",
+        "Ties decisions to measured latency + cost per request, not guesses",
+        "Guards quality with the eval set while optimizing",
+        "Prioritises by impact rather than changing everything at once"
+      ],
+      "time_limit_seconds": 180
+    }
+  },
+  {
+    "source_ref": "AIE-6-Q02",
+    "track": {
+      "code": "AIE",
+      "name": "AI Engineering",
+      "domain": "technical"
+    },
+    "sub_competency": {
+      "code": "AIE.6",
+      "name": "Production, Cost & Observability"
+    },
+    "tool_type": "mcq",
+    "difficulty": "easy",
+    "rubric": "Knows what to instrument for LLM observability.",
+    "body": "Which set of signals is most useful to log for observability of an LLM feature in production?",
+    "payload": {
+      "options": [
+        {
+          "id": "a",
+          "text": "Only the final response text"
+        },
+        {
+          "id": "b",
+          "text": "Prompt, response, token counts, latency, cost, model version, and errors — per request"
+        },
+        {
+          "id": "c",
+          "text": "Just the total number of requests per day"
+        },
+        {
+          "id": "d",
+          "text": "The developer's local console output"
+        }
+      ],
+      "answer_key": {
+        "correct_id": "b"
+      },
+      "explanation": "Rich per-request traces (inputs, outputs, tokens, latency, cost, version, errors) are what let you debug quality, cost, and regressions."
+    }
+  }
+]
