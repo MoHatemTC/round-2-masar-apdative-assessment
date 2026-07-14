@@ -1,0 +1,161 @@
+"""Tests for Week 1 - Intake Foundation: session start/intake endpoints + starting-prior logic.
+
+Covers:
+  - POST /session/start: happy path, missing/invalid assessment.
+  - POST /session/{id}/intake: happy path (persists self-ratings keyed by competency,
+    mirrors into session_self_ratings, flips status, returns priors), validation errors,
+    unknown session.
+  - app.services.prior.compute_prior / compute_priors: the self-rating and default-3 fallbacks
+    required by this task, plus the blended-with-CV branch for forward compatibility.
+"""
+from __future__ import annotations
+
+from app.services.prior import DEFAULT_PRIOR, compute_prior, compute_priors
+
+COMPETENCY_A = "11111111-1111-1111-1111-111111111111"
+COMPETENCY_B = "22222222-2222-2222-2222-222222222222"
+
+
+# POST /session/start
+
+def test_start_session_creates_row_and_returns_id(client, fake_db):
+    assessment = fake_db.seed("assessments", {"id": "a-1", "title": "AI Engineer"})
+
+    resp = client.post("/session/start", json={
+        "assessment_id": assessment["id"],
+        "candidate_name": "Ada",
+        "candidate_email": "ada@example.com",
+    })
+
+    assert resp.status_code == 200
+    session_id = resp.json()["session_id"]
+    assert session_id
+
+    stored = fake_db.tables["sessions"][0]
+    assert stored["assessment_id"] == assessment["id"]
+    assert stored["candidate_name"] == "Ada"
+    assert stored["status"] == "identity"
+    assert stored["intake_answers"] == {}
+
+
+def test_start_session_404_when_assessment_missing(client, fake_db):
+    resp = client.post("/session/start", json={"assessment_id": "does-not-exist"})
+    assert resp.status_code == 404
+    assert fake_db.tables.get("sessions", []) == []  # no orphaned session created
+
+
+def test_start_session_422_when_assessment_id_missing(client):
+    resp = client.post("/session/start", json={"candidate_name": "Ada"})
+    assert resp.status_code == 422
+
+
+def test_start_session_422_when_assessment_id_blank(client):
+    resp = client.post("/session/start", json={"assessment_id": "   "})
+    assert resp.status_code == 422
+
+
+# POST /session/{id}/intake
+
+def test_submit_intake_persists_ratings_and_returns_priors(client, fake_db):
+    fake_db.seed("assessments", {"id": "a-1"})
+    session = fake_db.seed("sessions", {
+        "assessment_id": "a-1", "status": "identity", "intake_answers": {}, "cv_json": None,
+    })
+
+    resp = client.post(f"/session/{session['id']}/intake", json={
+        "self_ratings": {COMPETENCY_A: 4, COMPETENCY_B: 2},
+    })
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["self_ratings"] == {COMPETENCY_A: 4, COMPETENCY_B: 2}
+    # No CV available at intake time -> prior falls back to the self-rating itself.
+    assert body["priors"] == {COMPETENCY_A: 4, COMPETENCY_B: 2}
+
+    updated = fake_db.tables["sessions"][0]
+    assert updated["status"] == "in_progress"
+    assert updated["intake_answers"] == {COMPETENCY_A: 4, COMPETENCY_B: 2}
+    assert updated["intake_submitted_at"]  # timestamp was set
+
+    mirrored = {r["competency_id"]: r["self_rating"] for r in fake_db.tables["session_self_ratings"]}
+    assert mirrored == {COMPETENCY_A: 4, COMPETENCY_B: 2}
+
+
+def test_submit_intake_404_when_session_missing(client):
+    resp = client.post("/session/unknown-id/intake", json={"self_ratings": {COMPETENCY_A: 3}})
+    assert resp.status_code == 404
+
+
+def test_submit_intake_422_when_self_ratings_missing(client, fake_db):
+    session = fake_db.seed("sessions", {"status": "identity"})
+    resp = client.post(f"/session/{session['id']}/intake", json={})
+    assert resp.status_code == 422
+
+
+def test_submit_intake_422_when_rating_out_of_range(client, fake_db):
+    session = fake_db.seed("sessions", {"status": "identity"})
+    resp = client.post(f"/session/{session['id']}/intake", json={
+        "self_ratings": {COMPETENCY_A: 7},
+    })
+    assert resp.status_code == 422
+    assert "between 1 and 5" in str(resp.json()["detail"])
+
+
+def test_submit_intake_422_when_rating_not_numeric(client, fake_db):
+    session = fake_db.seed("sessions", {"status": "identity"})
+    resp = client.post(f"/session/{session['id']}/intake", json={
+        "self_ratings": {COMPETENCY_A: "high"},
+    })
+    assert resp.status_code == 422
+
+
+def test_submit_intake_keeps_cv_json_sent_at_start(client, fake_db):
+    session = fake_db.seed("sessions", {
+        "status": "identity", "cv_json": {"raw_text": "resume..."},
+    })
+    resp = client.post(f"/session/{session['id']}/intake", json={
+        "self_ratings": {COMPETENCY_A: 3},
+    })
+    assert resp.status_code == 200
+    assert fake_db.tables["sessions"][0]["cv_json"] == {"raw_text": "resume..."}
+
+
+# app.services.prior
+
+def test_compute_prior_defaults_to_three_when_neither_given():
+    assert compute_prior(None, None) == DEFAULT_PRIOR == 3
+
+
+def test_compute_prior_uses_self_rating_when_no_cv():
+    for rating in (1, 2, 3, 4, 5):
+        assert compute_prior(rating, None) == rating
+
+
+def test_compute_prior_blends_when_both_given():
+    # round(0.5*4 + 0.5*2) = round(3.0) = 3
+    assert compute_prior(self_rating=2, cv_estimate=4) == 3
+
+
+def test_compute_prior_rounds_half_up_not_to_even():
+    # round(0.5*3 + 0.5*2) = round(2.5) -> 3 (half-up), not 2 
+    assert compute_prior(self_rating=2, cv_estimate=3) == 3
+    assert compute_prior(self_rating=4, cv_estimate=3) == 4  # round(3.5) -> 4
+
+
+def test_compute_prior_clamps_to_valid_range():
+    assert compute_prior(self_rating=9, cv_estimate=None) == 5
+    assert compute_prior(self_rating=0, cv_estimate=None) == 1
+
+
+def test_compute_priors_maps_every_competency():
+    result = compute_priors({COMPETENCY_A: 5, COMPETENCY_B: 1}, cv_estimates=None)
+    assert result == {COMPETENCY_A: 5, COMPETENCY_B: 1}
+
+
+def test_compute_priors_blends_only_competencies_with_a_cv_estimate():
+    result = compute_priors(
+        self_ratings={COMPETENCY_A: 2, COMPETENCY_B: 4},
+        cv_estimates={COMPETENCY_A: 4},  # no CV estimate for COMPETENCY_B
+    )
+    assert result[COMPETENCY_A] == 3   # blended: round(0.5*4 + 0.5*2)
+    assert result[COMPETENCY_B] == 4   # self-rating only, no CV estimate available

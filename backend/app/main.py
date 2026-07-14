@@ -14,6 +14,7 @@ app.add_middleware(
 )
 
 app.include_router(admin.router)
+app.include_router(candidate_intake.router)
 app.include_router(chat.router)
 
 
