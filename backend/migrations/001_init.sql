@@ -138,3 +138,12 @@ create table if not exists email_logs (
   error      text,
   created_at timestamptz default now()
 );
+
+-- Invitations Table
+CREATE TABLE invitations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    assessment_id UUID REFERENCES assessments(id),
+    candidate_email TEXT NOT NULL,
+    status TEXT DEFAULT 'not-taken' CHECK (status IN ('not-taken', 'taken')),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
