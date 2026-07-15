@@ -14,9 +14,8 @@ async def grade_answer(tool_type: str, question: dict, tool_result: dict) -> dic
         return {"score": 0.0, "rationale": "Skipped by the candidate."}
 
     if tool_type == "mcq":
-        # TODO: correct = payload['answer_key']['correct_id']; score 5.0 if selected == correct else 0.0
         selected = tool_result.get("selected_id")
-        correct = payload['answer_key']['correct_id']
+        correct = (payload.get("answer_key") or {}).get("correct_id")
         if selected == correct:
             return {"score": 5.0, "rationale": "Candidate submitted the correct answer."}
         else:
@@ -24,6 +23,7 @@ async def grade_answer(tool_type: str, question: dict, tool_result: dict) -> dic
         
 
     if tool_type == "coding":
+
         # TODO: run tool_result['code'] against payload['test_cases'] in a SANDBOX (resource-bounded,
         #       never on the app host); tests_score = 5 * (passed / total). Then add an LLM judge on
         #       approach/quality for partial credit; blend (e.g. 0.7*tests + 0.3*judge). Log to ai_logs.
