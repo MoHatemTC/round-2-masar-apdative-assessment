@@ -16,7 +16,7 @@ async def grade_answer(tool_type: str, question: dict, tool_result: dict) -> dic
     if tool_type == "mcq":
         selected = tool_result.get("selected_id")
         correct = (payload.get("answer_key") or {}).get("correct_id")
-        if selected == correct:
+        if correct is not None and selected == correct:
             return {"score": 5.0, "rationale": "Candidate submitted the correct answer."}
         else:
             return {"score": 0.0, "rationale": "Candidate submitted an incorrect answer."}
