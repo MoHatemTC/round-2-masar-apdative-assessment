@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 from uuid import UUID
 
-# from app.db import get_db
+from app.db import get_db
 from app.schemas.question_types import validate_question_payload
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -38,32 +38,57 @@ async def set_competencies(set_id: str):
     """The distinct TRACK competencies covered by a set's questions."""
     raise NotImplementedError
 
-
-# --- ROUTES FOR YOUR TASK (The "Doors") ---
-
 @router.post("/assessments", response_model=AssessmentResponse)
 async def create_assessment(payload: AssessmentCreate):
     """
-    SCAFFOLD: This will eventually receive a question_set_id, 
-    look up the competencies for that set in the database, 
-    and create a new assessment.
+    Takes a question_set_id, derives the unique competencies from its questions,
+    and creates a new assessment row in the database.
     """
-    # For now, we return "dummy" data to prove the door works
-    return {
-        "id": "123e4567-e89b-12d3-a456-426614174000",
-        "question_set_id": payload.question_set_id,
-        "competency_ids": ["mock-competency-1", "mock-competency-2"],
+    db = await get_db()
+    
+    # 1. THE LOOKUP: Find all questions linked to this question_set_id
+    items_response = await db.table("question_set_items").select("question_id").eq("set_id", str(payload.question_set_id)).execute()
+    
+    # If the set doesn't exist or is empty, trigger the 404 error
+    if not items_response.data:
+        raise HTTPException(status_code=404, detail="Question set not found")
+        
+    # Extract the question IDs into a list
+    question_ids = [item["question_id"] for item in items_response.data]
+
+    # 2. THE DERIVATION: Look up those specific questions in the bank to get their competencies
+    bank_response = await db.table("question_bank").select("competency_id").in_("id", question_ids).execute()
+    
+    # Use a Python 'set' to instantly remove any duplicate competencies, then convert back to a list
+    derived_competencies = list(set([str(q["competency_id"]) for q in bank_response.data if q.get("competency_id")]))
+
+    # 3. THE INSERT: Create the assessment with the derived competencies
+    new_assessment_data = {
+        "question_set_id": str(payload.question_set_id),
+        "competency_ids": derived_competencies,
         "time_limit_min": payload.time_limit_min
     }
+    
+    insert_response = await db.table("assessments").insert(new_assessment_data).execute()
+    
+    if not insert_response.data:
+        raise HTTPException(status_code=500, detail="Failed to create assessment")
 
-@router.get("/assessments")
+    return insert_response.data[0]
+
+@router.get("/assessments", response_model=List[AssessmentResponse])
 async def list_assessments():
     """
-    SCAFFOLD: This will eventually ask the database for all assessments
-    and return them to the admin dashboard.
+    Queries the database for all created assessments
+    and returns them to the admin dashboard.
     """
-    # For now, return an empty list
-    return []
+    db = await get_db()
+    
+    # Grab every row from the assessments table
+    response = await db.table("assessments").select("*").execute()
+    
+    # Return the real list of assessments instead of an empty list []
+    return response.data
 
 
 @router.get("/sessions/{session_id}/report")
