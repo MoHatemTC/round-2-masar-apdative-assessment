@@ -38,6 +38,10 @@ def _validate_item(index: int, item: dict) -> dict | None:
          validate_question_payload — the single source of truth for what "valid" means
          for that type.
     """
+    if not isinstance(item, dict):
+        return {"index": index, "source_ref": None, "tool_type": None,
+                 "errors": ["Item must be a JSON object."]}
+
     source_ref = item.get("source_ref")
     tool_type = item.get("tool_type")
     body = item.get("body", "")
@@ -50,8 +54,19 @@ def _validate_item(index: int, item: dict) -> dict | None:
     elif tool_type not in QUESTION_TYPES:
         known = ", ".join(sorted(QUESTION_TYPES.keys()))
         errors.append(f"Unrecognized tool_type '{tool_type}'. Known types: {known}.")
+    elif body is not None and not isinstance(body, str):
+        # validate_question_payload assumes body is a string (it calls .strip() on it) —
+        # a wrong type here would otherwise raise an unhandled AttributeError and crash
+        # the whole batch request instead of reporting just this row.
+        errors.append("body must be a string.")
+    elif payload is not None and not isinstance(payload, dict):
+        # same reasoning: validate_question_payload calls payload.get(...) directly.
+        errors.append("payload must be an object (or omitted).")
     else:
-        errors.extend(validate_question_payload(tool_type, body, payload))
+        try:
+            errors.extend(validate_question_payload(tool_type, body, payload))
+        except Exception as exc:  # defensive: one malformed row must never crash the batch
+            errors.append(f"Could not validate payload: {exc}")
 
     if not errors:
         return None
