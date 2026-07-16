@@ -74,6 +74,26 @@ def test_priors_bridge_shape():
     # The highest probability (argmax) should be at index 4 (Level 5)
     assert prior_5.index(max(prior_5)) == 4
 
+def test_prior_confidence_edges_not_overconfident():
+    """
+    Assert that edge priors (e.g. 5.0) do not start with higher confidence 
+    than centered priors (e.g. 3.0), and that both start genuinely flat (~0.5).
+    """
+    def calc_conf(prior):
+        mean = sum((i+1)*p for i, p in enumerate(prior))
+        var = sum(p * ((i+1 - mean)**2) for i, p in enumerate(prior))
+        return 1.0 - (var / 4.0)
+
+    conf_3 = calc_conf(get_initial_posterior(3.0))
+    conf_5 = calc_conf(get_initial_posterior(5.0))
+    
+    # Both should be relatively flat (confidence around 0.5)
+    assert conf_3 < 0.6, "Centered prior is too confident"
+    assert conf_5 < 0.6, "Edge prior is too confident"
+    
+    # Edge should NOT be strictly more confident than center due to array cutoff
+    assert conf_5 <= conf_3, f"Edge prior ({conf_5}) is more confident than center ({conf_3})"
+    
 def test_blend_intake_signals():
     """
     Assert the 50/50 blending logic and fallbacks match the PRD spec.

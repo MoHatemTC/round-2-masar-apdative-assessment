@@ -18,19 +18,24 @@ def get_initial_posterior(prior_estimate: float) -> list[float]:
     Returns:
         list[float]: A normalized 5-element array representing probabilities for levels 1-5.
     """
+    import math # Ensure math is imported at the top of your file
+    
     # Bound the estimate to the valid 1.0 - 5.0 scale
     safe_estimate = max(1.0, min(5.0, float(prior_estimate)))
     
-    # A larger spread factor flattens the curve, increasing variance (lowering confidence).
-    # Using 2.0 creates a wide base, ensuring the engine starts with healthy uncertainty.
-    spread_factor = 2.0 
+    # To create a genuinely "low confidence" flat start that doesn't incorrectly
+    # over-index on the edges, we mix a uniform distribution (flat) with a slight peak.
+    base_uniform_weight = 1.0
+    peak_weight_multiplier = 0.2
     
     # 1. Calculate raw weights based on distance from the prior estimate
     raw_weights = []
     for i in range(5):
         level = i + 1
-        # Gaussian distribution formula modified for a wide spread
-        weight = math.exp(-((level - safe_estimate) ** 2) / spread_factor)
+        # Slight bump at the estimated level using standard Gaussian
+        bump = math.exp(-((level - safe_estimate) ** 2) / 1.0)
+        # Mix flat distribution with the bump
+        weight = base_uniform_weight + (peak_weight_multiplier * bump)
         raw_weights.append(weight)
         
     # 2. Normalize so the initial prior sums exactly to 1.0
@@ -39,7 +44,7 @@ def get_initial_posterior(prior_estimate: float) -> list[float]:
     if total_weight == 0:
         return [0.2, 0.2, 0.2, 0.2, 0.2]
         
-    return [round(w / total_weight, 4) for w in raw_weights]
+    return [w / total_weight for w in raw_weights]
 
 def blend_intake_signals(self_rating: int | None, cv_estimate: int | None) -> float:
     """
