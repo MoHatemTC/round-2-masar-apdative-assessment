@@ -12,6 +12,7 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 # --- SCHEMAS FOR YOUR TASK (Data Validation) ---
 class AssessmentCreate(BaseModel):
+    title: str
     question_set_id: UUID
     time_limit_min: Optional[int] = 30
 
@@ -62,8 +63,10 @@ async def create_assessment(payload: AssessmentCreate):
     # Use a Python 'set' to instantly remove any duplicate competencies, then convert back to a list
     derived_competencies = list(set([str(q["competency_id"]) for q in bank_response.data if q.get("competency_id")]))
 
+ 
     # 3. THE INSERT: Create the assessment with the derived competencies
     new_assessment_data = {
+        "title": payload.title, # <-- Add this line!
         "question_set_id": str(payload.question_set_id),
         "competency_ids": derived_competencies,
         "time_limit_min": payload.time_limit_min
