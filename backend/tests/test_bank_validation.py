@@ -7,7 +7,7 @@ Covers:
 
 Run with:
     cd backend
-    pytest tests/test_bank_validation.py -v
+    python -m pytest tests/test_bank_validation.py -v
 """
 
 import pytest
@@ -132,6 +132,24 @@ def test_unrecognized_tool_type_is_flagged(valid_mcq_item):
     assert any("Unrecognized tool_type" in e for e in result["errors"])
 
 
+def test_non_object_payload_is_flagged_not_crashed(valid_mcq_item):
+    """Regression test: payload as a string used to raise an unhandled AttributeError
+    (validate_question_payload calls payload.get(...)) instead of a row-level error."""
+    valid_mcq_item["payload"] = "not an object"
+    result = _validate_item(0, valid_mcq_item)
+    assert result is not None
+    assert any("payload must be an object" in e for e in result["errors"])
+
+
+def test_non_string_body_is_flagged_not_crashed(valid_mcq_item):
+    """Regression test: body as a non-string used to raise an unhandled AttributeError
+    (validate_question_payload calls body.strip()) instead of a row-level error."""
+    valid_mcq_item["body"] = 12345
+    result = _validate_item(0, valid_mcq_item)
+    assert result is not None
+    assert any("body must be a string" in e for e in result["errors"])
+
+
 # ---------------------------------------------------------------------------
 # Endpoint tests: POST /admin/question-bank/import
 # ---------------------------------------------------------------------------
@@ -197,6 +215,23 @@ def test_import_multiple_bad_rows_reports_each_with_correct_index(valid_mcq_item
 def test_import_empty_batch_returns_422():
     response = client.post("/admin/question-bank/import", json=[])
     assert response.status_code == 422
+
+
+def test_import_with_malformed_payload_type_returns_422_not_500(valid_mcq_item, valid_coding_item):
+    """Regression test: a row with the wrong JSON type for payload must not crash the
+    whole batch (500) — it must be reported as that row's error, with other rows intact."""
+    valid_mcq_item["payload"] = "not an object"
+
+    response = client.post(
+        "/admin/question-bank/import",
+        json=[valid_mcq_item, valid_coding_item],
+    )
+
+    assert response.status_code == 422
+    row_errors = response.json()["detail"]["row_errors"]
+    assert len(row_errors) == 1
+    assert row_errors[0]["index"] == 0
+    assert any("payload must be an object" in e for e in row_errors[0]["errors"])
 
 
 def test_import_does_not_persist_anything_yet(valid_mcq_item):
