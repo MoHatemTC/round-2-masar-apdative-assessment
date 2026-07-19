@@ -89,7 +89,7 @@ async def set_competencies(set_id: str):
 
     return track_ids
 
-@router.get("/assessments", response_model=list[AssessmentResponse])
+@router.post("/assessments", response_model=AssessmentResponse)
 async def create_assessment(payload: AssessmentCreate):
     """Create a set-driven assessment.
     TODO: if body has question_set_id and no competency_ids → derive them from the set
@@ -121,7 +121,7 @@ async def create_assessment(payload: AssessmentCreate):
 
     return insert_response.data[0]
     
-@router.get("/assessments", response_model=List[AssessmentResponse])
+@router.get("/assessments", response_model=list[AssessmentResponse])
 async def list_assessments():
     """
     Queries the database for all created assessments
