@@ -4,6 +4,9 @@ from app.routes import admin
 import uuid
 
 
+SUB_ID = "550e8400-e29b-41d4-a716-446655440000"
+TRACK_ID = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+
 class DummyDB:
     def __init__(self):
         self.current_table = None
@@ -42,23 +45,23 @@ class DummyDB:
 
         elif self.current_table == "question_bank":
             res.data = [
-                {"competency_id": "fake-sub-123"}
-            ]
+            {"competency_id": SUB_ID}
+           ]
 
-        elif self.current_table == "competencies":
-            res.data = [
-                {"parent_id": "fake-track-123"}
-            ]
+       elif self.current_table == "competencies":
+           res.data = [
+          {"parent_id": TRACK_ID}
+    ]
 
         elif self.current_table == "assessments":
-            res.data = [
-                {
-                    "id": str(uuid.uuid4()),
-                    "title": "Good Assessment",
-                    "question_set_id": str(uuid.uuid4()),
-                    "competency_ids": ["fake-track-123"],
-                    "time_limit_min": 30,
-                }
+           res.data = [
+        {
+            "id": str(uuid.uuid4()),
+            "title": "Good Assessment",
+            "question_set_id": str(uuid.uuid4()),
+            "competency_ids": [TRACK_ID],
+            "time_limit_min": 30,
+        } 
             ]
 
         else:
