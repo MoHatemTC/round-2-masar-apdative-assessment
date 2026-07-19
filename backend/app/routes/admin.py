@@ -1,6 +1,7 @@
 """Admin API: import a bank (→ set), create a set-driven assessment, list/review.  [TODO]"""
 from __future__ import annotations
 from fastapi import APIRouter, Body, HTTPException
+from app.db import get_db
 
 # from app.db import get_db
 from app.schemas.question_types import validate_question_payload
@@ -45,5 +46,28 @@ async def create_assessment(body: dict = Body(...)):
 
 @router.get("/sessions/{session_id}/report")
 async def get_report(session_id: str):
-    """Return the final_reports row + per-competency results for the admin review page. TODO."""
-    raise NotImplementedError
+    """Return the final_reports row + per-competency results for the admin review page.
+
+    Scoring/schema owned by app/services/scoring.py + backend/migrations/005_reports.sql
+    (Scoring, Reporting, Email & Observability lane). This endpoint only reads what
+    adaptive_loop.finalize() already wrote — no scoring math happens here.
+    """
+    db = await get_db()
+
+    report_resp = (
+        await db.table("final_reports").select("*").eq("session_id", session_id).execute()
+    )
+    if not report_resp.data:
+        raise HTTPException(status_code=404, detail="Report not found for this session")
+
+    results_resp = (
+        await db.table("session_competency_results")
+        .select("*")
+        .eq("session_id", session_id)
+        .execute()
+    )
+
+    return {
+        "report": report_resp.data[0],
+        "competency_results": results_resp.data,
+    }
