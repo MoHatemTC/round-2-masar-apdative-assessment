@@ -16,7 +16,9 @@ class DummyDB:
     def select(self, *args): return self
     def eq(self, *args): return self
     def in_(self, *args): return self
-    def insert(self, *args): return self
+    def insert(self, data):
+        self.inserted = data
+        return self
     
     async def execute(self):
         class Response: pass
@@ -71,4 +73,5 @@ def test_all_admin_routes():
         success_res = client.post("/admin/assessments", json=success_payload)
         
         assert success_res.status_code == 200
+        assert fake_db.inserted["title"] == "Good Assessment"
         assert "fake-competency-123" in success_res.json()["competency_ids"]
