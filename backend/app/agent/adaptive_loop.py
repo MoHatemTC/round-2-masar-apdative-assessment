@@ -132,12 +132,61 @@ async def check_convergence(db, session: dict, state: dict) -> None:
 
 
 async def finalize(db, session: dict, state: dict) -> dict:
-    """Compute per-competency level → %/band, overall %, write final_reports, (email), set _complete.
-    TODO:
-      per competency: pct=_pct(level); low_confidence = pc['confidence'] < CONFIDENCE_TARGET;
-      overall_pct = avg(level)*20; (level, label)=_band(overall_pct)
-      insert final_reports {overall_pct, overall_level, level_label, skill_scores (incl. low_confidence flag)};
-      mark session completed; send report + admin emails (log each send); state['_complete'] = True;
-      state['_emit'] = a closing message. return state.
+    """Compute per-competency level → %/band, overall %, write final_reports, mark the
+    session completed, set _complete.
+
+    All scoring math (pct = level*20, band mapping, the low-confidence rule) is
+    delegated to app.services.scoring — the Scoring, Reporting, Email & Observability
+    lane — so this function only orchestrates reading state and writing rows. See
+    app/services/scoring.py and backend/migrations/005_reports.sql for the schema and
+    the tested scoring logic.
+
+    TODO (outside the scoring lane's current scope): send report + admin emails, log
+    each send. finalize() sets state['_complete']/state['_emit'] so the email step can
+    be added here later without touching the scoring/persistence logic above it.
     """
-    raise NotImplementedError
+    from datetime import datetime, timezone
+
+    from app.services.scoring import (
+        competency_result_from_state,
+        final_report_row,
+        session_competency_result_row,
+    )
+
+    per_competency: dict = state.get("per_competency", {})
+    if not per_competency:
+        raise ValueError("finalize() called with no per_competency results in state")
+
+    results = []
+    competency_rows = []
+    for competency_id, pc in per_competency.items():
+        result = competency_result_from_state(competency_id, pc)
+        results.append(result)
+        competency_rows.append(session_competency_result_row(session["id"], pc, result))
+
+    # Authoritative final write per competency (check_convergence may already have written
+    # an earlier snapshot of the same row; this upsert replaces it with the final values).
+    await (
+        db.table("session_competency_results")
+        .upsert(competency_rows, on_conflict="session_id,competency_id")
+        .execute()
+    )
+
+    report_row = final_report_row(session["id"], results)
+    await db.table("final_reports").upsert(report_row, on_conflict="session_id").execute()
+
+    await (
+        db.table("sessions")
+        .update({"status": "completed", "completed_at": datetime.now(timezone.utc).isoformat()})
+        .eq("id", session["id"])
+        .execute()
+    )
+
+    state["_complete"] = True
+    state["_emit"] = {
+        "type": "complete",
+        "message": "Assessment complete — your report is ready.",
+        "overall_pct": report_row["overall_pct"],
+        "level_label": report_row["level_label"],
+    }
+    return state
