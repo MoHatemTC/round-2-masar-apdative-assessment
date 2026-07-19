@@ -33,20 +33,27 @@ async def question_bank_types():
 
 @router.post("/question-bank/import")
 async def import_bank(items: list[dict] = Body(...), set_name: str | None = None):
-    """Import a fully-defined bank JSON and group it into a Question Set."""
+    """Import a fully-defined bank JSON and group it into a Question Set.
+    TODO:
+      1. Validate every item's payload (validate_question_payload) → 422 with per-row errors.
+      2. Upsert competencies: tracks (by code), then subs (by code, parent = track).
+      3. Upsert questions on source_ref (preserve difficulty!). Link competency_id = sub.
+      4. Create/find a question_set named `set_name` (default: the track name(s)); add all items.
+      5. Return {tracks, sub_competencies, questions, set: {id, name, item_count}}.
+    """
     raise NotImplementedError
 
 @router.get("/question-sets/{set_id}/competencies")
 async def set_competencies(set_id: str):
-    """The distinct TRACK competencies covered by a set's questions."""
+   """The distinct TRACK competencies covered by a set's questions (subs roll up to parent).
+    Used by the assessment form to auto-derive what an assessment measures. TODO."""
     raise NotImplementedError
 
 @router.post("/assessments", response_model=AssessmentResponse)
 async def create_assessment(payload: AssessmentCreate):
-    """
-    Takes a question_set_id, derives the unique competencies from its questions,
-    and creates a new assessment row in the database.
-    """
+   """Create a set-driven assessment.
+    TODO: if body has question_set_id and no competency_ids → derive them from the set
+    (set_competencies). Insert into `assessments`. Return the row."""
     db = await get_db()
     
     # 1. THE LOOKUP: Find all questions linked to this question_set_id
