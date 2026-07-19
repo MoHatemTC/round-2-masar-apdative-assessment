@@ -10,7 +10,6 @@ from app.schemas.question_types import validate_question_payload
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
-# --- SCHEMAS FOR YOUR TASK (Data Validation) ---
 class AssessmentCreate(BaseModel):
     title: str
     question_set_id: UUID
@@ -63,11 +62,7 @@ async def list_assessments():
     and returns them to the admin dashboard.
     """
     db = await get_db()
-    
-    # Grab every row from the assessments table
     response = await db.table("assessments").select("*").execute()
-    
-    # Return the real list of assessments instead of an empty list []
     return response.data
 
 
