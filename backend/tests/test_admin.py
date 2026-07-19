@@ -55,12 +55,15 @@ class DummyDB:
             ]
 
         elif self.current_table == "assessments":
-            res.data = [
-                {
-                    "id": str(uuid.uuid4()),
-                    **self.inserted,
-                }
-            ]
+            if self.inserted is not None:
+                res.data = [
+                    {
+                        "id": str(uuid.uuid4()),
+                        **self.inserted,
+                    }
+                ]
+            else:
+                res.data = []
 
         else:
             res.data = []
