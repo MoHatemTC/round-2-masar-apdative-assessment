@@ -14,13 +14,15 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 class AssessmentCreate(BaseModel):
     title: str
     question_set_id: UUID
-    time_limit_min: Optional[int] | None = 30
+    time_limit_min: Optional[int] = 30
+
 
 class AssessmentResponse(BaseModel):
     id: UUID
+    title: str
     question_set_id: UUID
     competency_ids: List[UUID]
-    time_limit_min: Optional[int]
+    time_limit_min: Optional[int] = 30
     
 
 @router.get("/question-bank/types")
@@ -61,7 +63,13 @@ async def create_assessment(payload: AssessmentCreate):
     bank_response = await db.table("question_bank").select("competency_id").in_("id", question_ids).execute()
     
     # Use a Python 'set' to instantly remove any duplicate competencies, then convert back to a list
-    derived_competencies = list(set([str(q["competency_id"]) for q in bank_response.data if q.get("competency_id")]))
+    derived_competencies = list(
+    set(
+        q["competency_id"]
+        for q in bank_response.data
+        if q.get("competency_id")
+    )
+)
 
  
     # 3. THE INSERT: Create the assessment with the derived competencies
