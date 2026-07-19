@@ -95,7 +95,32 @@ async def create_assessment(payload: AssessmentCreate):
     """Create a set-driven assessment.
     TODO: if body has question_set_id and no competency_ids → derive them from the set
     (set_competencies). Insert into `assessments`. Return the row."""
-    raise HTTPException(status_code=501, detail="Not implemented yet")
+    db = await get_db()
+
+    competencies_response = await set_competencies(
+        str(payload.question_set_id)
+    )
+
+    new_assessment_data = {
+        "title": payload.title,
+        "question_set_id": str(payload.question_set_id),
+        "competency_ids": competencies_response,
+        "time_limit_min": payload.time_limit_min,
+    }
+
+    insert_response = (
+        await db.table("assessments")
+        .insert(new_assessment_data)
+        .execute()
+    )
+
+    if not insert_response.data:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to create assessment",
+        )
+
+    return insert_response.data[0]
     
 @router.get("/assessments", response_model=List[AssessmentResponse])
 async def list_assessments():
