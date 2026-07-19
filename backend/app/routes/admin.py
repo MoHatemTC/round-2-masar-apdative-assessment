@@ -19,9 +19,9 @@ class AssessmentCreate(BaseModel):
 class AssessmentResponse(BaseModel):
     id: UUID
     question_set_id: UUID
-    competency_ids: List[str]
+    competency_ids: List[UUID]
     time_limit_min: Optional[int]
-
+    
 
 @router.get("/question-bank/types")
 async def question_bank_types():
