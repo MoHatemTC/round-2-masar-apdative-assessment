@@ -51,49 +51,11 @@ async def set_competencies(set_id: str):
 
 @router.post("/assessments", response_model=AssessmentResponse)
 async def create_assessment(payload: AssessmentCreate):
-   """Create a set-driven assessment.
+    """Create a set-driven assessment.
     TODO: if body has question_set_id and no competency_ids → derive them from the set
     (set_competencies). Insert into `assessments`. Return the row."""
-    db = await get_db()
+    raise HTTPException(status_code=501, detail="Not implemented yet")
     
-    # 1. THE LOOKUP: Find all questions linked to this question_set_id
-    items_response = await db.table("question_set_items").select("question_id").eq("set_id", str(payload.question_set_id)).execute()
-    
-    # If the set doesn't exist or is empty, trigger the 404 error
-    if not items_response.data:
-        raise HTTPException(status_code=404, detail="Question set not found")
-        
-    # Extract the question IDs into a list
-    question_ids = [item["question_id"] for item in items_response.data]
-
-    # 2. THE DERIVATION: Look up those specific questions in the bank to get their competencies
-    bank_response = await db.table("question_bank").select("competency_id").in_("id", question_ids).execute()
-    
-    # Use a Python 'set' to instantly remove any duplicate competencies, then convert back to a list
-    derived_competencies = list(
-    set(
-        q["competency_id"]
-        for q in bank_response.data
-        if q.get("competency_id")
-    )
-)
-
- 
-    # 3. THE INSERT: Create the assessment with the derived competencies
-    new_assessment_data = {
-        "title": payload.title, # <-- Add this line!
-        "question_set_id": str(payload.question_set_id),
-        "competency_ids": derived_competencies,
-        "time_limit_min": payload.time_limit_min
-    }
-    
-    insert_response = await db.table("assessments").insert(new_assessment_data).execute()
-    
-    if not insert_response.data:
-        raise HTTPException(status_code=500, detail="Failed to create assessment")
-
-    return insert_response.data[0]
-
 @router.get("/assessments", response_model=List[AssessmentResponse])
 async def list_assessments():
     """
