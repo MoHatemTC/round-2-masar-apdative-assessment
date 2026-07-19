@@ -58,10 +58,7 @@ class DummyDB:
             res.data = [
                 {
                     "id": str(uuid.uuid4()),
-                    "title": "Good Assessment",
-                    "question_set_id": str(uuid.uuid4()),
-                    "competency_ids": [TRACK_ID],
-                    "time_limit_min": 30,
+                    **self.inserted,
                 }
             ]
 
