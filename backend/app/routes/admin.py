@@ -2,7 +2,6 @@
 from __future__ import annotations
 from fastapi import APIRouter, Body, HTTPException
 from pydantic import BaseModel
-from typing import List, Optional
 from uuid import UUID
 
 from app.db import get_db
@@ -13,15 +12,15 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 class AssessmentCreate(BaseModel):
     title: str
     question_set_id: UUID
-    time_limit_min: Optional[int] = 30
+    time_limit_min: int | None = 30
 
 
 class AssessmentResponse(BaseModel):
     id: UUID
     title: str
     question_set_id: UUID
-    competency_ids: List[UUID]
-    time_limit_min: Optional[int] = 30
+    competency_ids: list[UUID]
+    time_limit_min: int | None = 30
     
 
 @router.get("/question-bank/types")
@@ -90,7 +89,7 @@ async def set_competencies(set_id: str):
 
     return track_ids
 
-@router.post("/assessments", response_model=AssessmentResponse)
+@router.get("/assessments", response_model=list[AssessmentResponse])
 async def create_assessment(payload: AssessmentCreate):
     """Create a set-driven assessment.
     TODO: if body has question_set_id and no competency_ids → derive them from the set
