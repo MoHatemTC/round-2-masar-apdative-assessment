@@ -44,9 +44,51 @@ async def import_bank(items: list[dict] = Body(...), set_name: str | None = None
 
 @router.get("/question-sets/{set_id}/competencies")
 async def set_competencies(set_id: str):
-   """The distinct TRACK competencies covered by a set's questions (subs roll up to parent).
+    """The distinct TRACK competencies covered by a set's questions (subs roll up to parent).
     Used by the assessment form to auto-derive what an assessment measures. TODO."""
-    raise NotImplementedError
+    db = await get_db()
+
+    items_response = (
+        await db.table("question_set_items")
+        .select("question_id")
+        .eq("set_id", set_id)
+        .execute()
+    )
+
+    if not items_response.data:
+        raise HTTPException(status_code=404, detail="Question set not found")
+
+    question_ids = [item["question_id"] for item in items_response.data]
+
+    bank_response = (
+        await db.table("question_bank")
+        .select("competency_id")
+        .in_("id", question_ids)
+        .execute()
+    )
+
+    sub_ids = [
+        question["competency_id"]
+        for question in bank_response.data
+        if question.get("competency_id")
+    ]
+
+    competencies_response = (
+        await db.table("competencies")
+        .select("parent_id")
+        .in_("id", sub_ids)
+        .execute()
+    )
+
+    track_ids = list(
+        set(
+            competency["parent_id"]
+            for competency in competencies_response.data
+            if competency.get("parent_id")
+        )
+    )
+
+    return track_ids
 
 @router.post("/assessments", response_model=AssessmentResponse)
 async def create_assessment(payload: AssessmentCreate):
