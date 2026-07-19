@@ -14,7 +14,7 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 class AssessmentCreate(BaseModel):
     title: str
     question_set_id: UUID
-    time_limit_min: Optional[int] = 30
+    time_limit_min: Optional[int] | None = 30
 
 class AssessmentResponse(BaseModel):
     id: UUID
