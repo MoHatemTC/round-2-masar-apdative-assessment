@@ -18,8 +18,6 @@ def get_initial_posterior(prior_estimate: float) -> list[float]:
     Returns:
         list[float]: A normalized 5-element array representing probabilities for levels 1-5.
     """
-    import math # Ensure math is imported at the top of your file
-    
     # Bound the estimate to the valid 1.0 - 5.0 scale
     safe_estimate = max(1.0, min(5.0, float(prior_estimate)))
     
