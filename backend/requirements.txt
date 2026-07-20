@@ -1,0 +1,10 @@
+# Adaptive assessment — backend deps
+fastapi>=0.111
+uvicorn[standard]>=0.30
+pydantic>=2.7
+supabase>=2.6           # Postgres + auth (async client)
+openai>=1.40            # LLM calls (point base_url at your LiteLLM/OpenAI-compatible proxy)
+resend>=2.0             # transactional email (invite + report)
+python-dotenv>=1.0
+pytest>=9.1.0
+pytest-asyncio>=1.4.0
