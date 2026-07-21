@@ -6,4 +6,5 @@ async def main():
     result = await db.table("ai_logs").select("*").limit(1).execute()
     print("Connected. Sample ai_logs row(s):", result.data)
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main()) 
