@@ -12,15 +12,15 @@ async def grade_answer(tool_type: str, question: dict, tool_result: dict, sessio
     payload = question.get("payload") or {}
 
     if tool_result.get("skipped"):
-        return {"score": 0.0, "rationale": "Skipped by the candidate."}
-
+        return {"score": 0.0, "rationale": "Skipped by the candidate.", "flagged": False}
+    
     if tool_type == "mcq":
         selected = tool_result.get("selected_id")
         correct = (payload.get("answer_key") or {}).get("correct_id")
         if correct is not None and selected == correct:
-            return {"score": 5.0, "rationale": "Candidate submitted the correct answer."}
+            return {"score": 5.0, "rationale": "Candidate submitted the correct answer.","flagged": False}
         else:
-            return {"score": 0.0, "rationale": "Candidate submitted an incorrect answer."}
+            return {"score": 0.0, "rationale": "Candidate submitted an incorrect answer.","flagged": False}
         
 
     if tool_type == "coding":
@@ -66,6 +66,7 @@ async def grade_answer(tool_type: str, question: dict, tool_result: dict, sessio
 
     return _parse_llm_grade(result["text"])
 
+
 def _parse_llm_grade(text: str | None) -> dict:
     """Parse 'SCORE: <n>\\nRATIONALE: <text>' from the LLM's response."""
     if not text:
@@ -80,8 +81,7 @@ def _parse_llm_grade(text: str | None) -> dict:
     score = max(0.0, min(5.0, float(score_match.group(1))))
     rationale = rationale_match.group(1).strip()
 
-    return {"score": score, "rationale": rationale}
-
+    return {"score": score, "rationale": rationale, "flagged": False} 
 
 def estimate_level(posterior: list[float], score: float, difficulty: int) -> dict:
     """DETERMINISTIC Bayesian update — NO LLM call. Given the running `posterior` over levels {1..5},
