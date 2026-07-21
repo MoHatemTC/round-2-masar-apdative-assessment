@@ -1,11 +1,13 @@
 """Admin API: import a bank (→ set), create a set-driven assessment, list/review.  [TODO]"""
 from __future__ import annotations
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, HTTPException, Depends
 from pydantic import BaseModel
 from uuid import UUID
 
 from app.db import get_db
 from app.schemas.question_types import validate_question_payload
+from typing import List, Optional
+from supabase import AsyncClient
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -90,15 +92,10 @@ async def set_competencies(set_id: str):
     return track_ids
 
 @router.post("/assessments", response_model=AssessmentResponse)
-async def create_assessment(payload: AssessmentCreate):
-    """Create a set-driven assessment.
-    TODO: if body has question_set_id and no competency_ids → derive them from the set
-    (set_competencies). Insert into `assessments`. Return the row."""
-    db = await get_db()
-
-    competencies_response = await set_competencies(
-        str(payload.question_set_id)
-    )
+async def create_assessment(payload: AssessmentCreate, db: AsyncClient = Depends(get_db)):
+    """Create a set-driven assessment, automatically deriving competencies."""
+    # Automatically derive the competencies from the provided question set ID
+    competencies_response = await set_competencies(str(payload.question_set_id), db)
 
     new_assessment_data = {
         "title": payload.title,
@@ -107,17 +104,11 @@ async def create_assessment(payload: AssessmentCreate):
         "time_limit_min": payload.time_limit_min,
     }
 
-    insert_response = (
-        await db.table("assessments")
-        .insert(new_assessment_data)
-        .execute()
-    )
-
+    # Insert the derived assessment into the database
+    insert_response = await db.table("assessments").insert(new_assessment_data).execute()
+    
     if not insert_response.data:
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to create assessment",
-        )
+        raise HTTPException(status_code=500, detail="Failed to create assessment")
 
     return insert_response.data[0]
     

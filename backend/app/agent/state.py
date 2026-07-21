@@ -7,6 +7,14 @@ from typing import List, Optional, Any, Dict
 
 class AgentStateModel(BaseModel):
     # Core Orchestration Fields
+    session_id: str = Field(
+        default="",
+        description="Unique identifier for the active assessment session."
+    )
+    question_number: int = Field(
+        default=0,
+        description="The sequence index of the question for enforcing uniqueness and resumability."
+    )
     current_competency: Optional[str] = Field(
         default=None, 
         description="The competency currently being assessed (e.g., 'Python-Backend')."
@@ -20,7 +28,7 @@ class AgentStateModel(BaseModel):
         description="The current conversation/turn counter for this session."
     )
     
-    # Adaptive Math History (Week 1 Placeholders)
+    # Adaptive Math History & Progress Tracking
     current_level_estimate: float = Field(
         default=3.0, 
         description="The running numerical estimate of the candidate's level (1.0 to 5.0)."
@@ -28,6 +36,14 @@ class AgentStateModel(BaseModel):
     is_converged: bool = Field(
         default=False, 
         description="Flag tracking if the current competency assessment has reached a stopping condition."
+    )
+    completed_competencies: List[str] = Field(
+        default_factory=list,
+        description="List of competency names that have fully converged."
+    )
+    estimates: Dict[str, float] = Field(
+        default_factory=dict,
+        description="Mapping of competency names to their latest calculated level estimates."
     )
 
     # Allow dynamic extension and transient variables

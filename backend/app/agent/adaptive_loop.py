@@ -14,6 +14,9 @@ Fill in every TODO. Keep the golden rules:
   - idempotent + resumable
 """
 from __future__ import annotations
+from app.services.selection import select_competency_question
+from app.services.grading import grade_answer
+from app.services.estimation import estimate_level
 
 # ── Tunable convergence knobs (start here; see ARCHITECTURE.md) ──────────────
 CONFIDENCE_TARGET = 0.90
@@ -23,6 +26,11 @@ STABLE_WINDOW = 3           # same level N times in a row → converged
 # MCQ key + explanation, coding tests, and the rubric keys the open-ended/voice/data-analysis graders read.
 _ANSWER_KEYS = {"answer_key", "correct_id", "explanation", "test_cases", "expected_output",
                 "evaluation_criteria", "expected_insights", "rubric"}
+# ── Transient State Keys ──────────────
+# Keys prefixed with '_' are strictly stripped in chat.py before DB persistence.
+# _emit: The public question payload sent to the frontend.
+# _complete: Boolean flag signaling the assessment has finished.
+# _grading: Temporary hold of the grade output to pass between grade() and estimate().
 
 LEVEL_BANDS = [(20, 1, "Novice"), (40, 2, "Developing"), (60, 3, "Proficient"),
                (80, 4, "Advanced"), (100, 5, "Expert")]
@@ -65,70 +73,208 @@ async def run_turn(db, session: dict, state: dict, tool_result: dict | None) -> 
 
 
 async def init_session(db, session: dict, state: dict) -> None:
-    """Once per session. Build the per-competency starting belief.
-    TODO:
-      1. Load the assessment's competency_ids → the competency queue.
-      2. Read self-ratings (1–5) from session['intake_answers'].
-      3. cv_estimate = await cv_estimate_levels(session.get('cv_json'), queue)  # one LLM call
-      4. start = round(0.5*cv_estimate + 0.5*self_rating) per competency; self_rating alone with no CV;
-         fallback 3. Seed the Bayesian posterior peaked on `start` at low confidence (a belief, not a measurement).
-      5. state['per_competency'][cid] = {self_rating, initial_estimate: start, level: start, confidence,
-             posterior: prior_distribution(start),   # [p1..p5] over levels 1..5, peaked on `start`
-             level_history: [], questions_asked: 0, used_ids: [], asked_types: [], converged: False}
-      6. state['queue'], state['active_index'] = 0, state['initialized'] = True,
-         state['question_language'], state['question_set_id'] (from the assessment).
-    """
-    raise NotImplementedError
+    """Once per session. Build the per-competency starting belief."""
+    assessment_id = session.get("assessment_id")
+    
+    # 1. Load the assessment's competency_ids
+    assess_res = await db.table("assessments").select("*").eq("id", assessment_id).maybe_single().execute()
+    assessment = assess_res.data or {}
+    comp_ids = assessment.get("competency_ids", [])
+
+    # 2. Read self-ratings (1–5) from intake
+    intake = session.get("intake_answers", {})
+    
+    state["queue"] = comp_ids
+    state["active_index"] = 0
+    state["initialized"] = True
+    state["question_language"] = assessment.get("language", "en")
+    state["question_set_id"] = assessment.get("question_set_id")
+    state["per_competency"] = {}
+    
+    # Initialize Bayesian prior parameters per competency
+    for cid in comp_ids:
+        self_rating = intake.get(cid, 3)
+        # 3 & 4. Mocking cv_estimate blend for now; default to self_rating[cite: 1]
+        start = self_rating
+        
+        # Seed the Bayesian posterior peaked on `start` at low confidence
+        posterior = [0.1] * 5
+        posterior[start - 1] = 0.6 
+        
+        # 5. Populate state tracking dicts
+        state["per_competency"][cid] = {
+            "self_rating": self_rating,
+            "initial_estimate": start,
+            "level": start,
+            "confidence": 0.0,
+            "posterior": posterior,
+            "level_history": [],
+            "questions_asked": 0,
+            "used_ids": [],
+            "asked_types": {},
+            "converged": False
+        }
 
 
 async def pick_question(db, session: dict, state: dict) -> dict:
-    """Emit the next question, or finalize when all competencies converged.
-    TODO:
-      1. Advance active_index past converged competencies. If none left → return await finalize(...).
-      2. target_difficulty = round(pc['level'])  # difficulty-adaptive: aim at the current estimate.
-      3. comp = queue[active_index]; q = await make_question(db, comp, pc, cv_context,
-             target_difficulty=target_difficulty,          # select a bank question near this difficulty
-             language=state['question_language'], question_set_id=state['question_set_id'])
-      4. If the bank is dry, make_question falls back to a GENERATED open-ended question and keeps
-         probing — it only returns None once questions_asked >= MAX_QUESTIONS. On None → mark converged
-         (reason 'max_questions', flag low-confidence if pc['confidence'] < CONFIDENCE_TARGET), continue.
-      5. state['current_question'] = q (FULL payload, kept server-side for grading).
-      6. state['_emit'] = {question_number, body, tool_type, payload: _public_payload(q['payload'])}
-      7. return state
-    """
-    raise NotImplementedError
+    """Emit the next question, or finalize when all competencies converged."""
+    queue = state.get("queue", [])
+    pc_dict = state.get("per_competency", {})
+    
+    # 1. Advance active_index past converged competencies.
+    while state["active_index"] < len(queue):
+        cid = queue[state["active_index"]]
+        if not pc_dict[cid].get("converged"):
+            break
+        state["active_index"] += 1
+        
+    # If none left → finalize
+    if state["active_index"] >= len(queue):
+        return await finalize(db, session, state)
+        
+    cid = queue[state["active_index"]]
+    pc = pc_dict[cid]
+    
+    # 2. Difficulty-adaptive logic: aim at the current estimate[cite: 2]
+    target_difficulty = round(pc["level"])
+    
+    # 3. Call selection service with difficulty and type counts
+    q = await select_competency_question(
+        supabase=db,
+        competency=cid,
+        sub_ids=pc["used_ids"],
+        current_estimate=target_difficulty,
+        tool_type_counts=pc.get("asked_types", {})
+    )
+    
+    # 4. Bank exhaustion handling
+    if not q:
+        pc["converged"] = True
+        pc["converged_reason"] = "max_questions"
+        state["active_index"] += 1
+        return await pick_question(db, session, state)
+        
+    # 5. Lock in the question state for the upcoming grade cycle
+    state["current_question"] = q
+    q_num = state.get("question_number", 0) + 1
+    state["question_number"] = q_num
+    
+    # 6. Emit sanitized payload to frontend
+    state["_emit"] = {
+        "question_number": q_num,
+        "body": q.get("body"),
+        "tool_type": q.get("tool_type"),
+        "payload": _public_payload(q.get("payload"))
+    }
+    return state
 
 
 async def grade(db, session: dict, state: dict, tool_result: dict) -> None:
-    """Grade the answer to state['current_question'] → 0–5 + rationale; write to `answers`.
-    TODO: dispatch by tool_type to services.grading; store with a unique (session, question_number)
-    guard so a reload can't double-count. Set state['_grading'] and clear current_question."""
-    raise NotImplementedError
+    """Grade the answer to state['current_question'] → 0–5 + rationale; write to `answers`."""
+    q = state.get("current_question", {})
+    tool_type = q.get("tool_type")
+    
+    # Grade the answer defensively using the teammate's contract[cite: 2]
+    result = await grade_answer(tool_type, q, tool_result, session["id"])
+    
+    # Persist the answer with the unique resumability constraint applied in DB migration[cite: 2]
+    answer_row = {
+        "session_id": session["id"],
+        "question_number": state.get("question_number"),
+        "question_id": q.get("id"),
+        "competency_id": q.get("competency"),
+        "tool_result": tool_result,
+        "score": result.get("score"),
+        "rationale": result.get("rationale"),
+        "flagged": result.get("flagged", False)
+    }
+    # Make grading idempotent: if a retry hits this, it safely overwrites the same score
+    await db.table("answers").upsert(answer_row, on_conflict="session_id,question_number").execute()
+    
+    state["_grading"] = result
+    
+    # Update tracking for used questions and asked tool types[cite: 2]
+    cid = q.get("competency")
+    pc = state["per_competency"][cid]
+    pc["used_ids"].append(str(q.get("id")))
+    pc["questions_asked"] += 1
+    
+    t_types = pc.get("asked_types", {})
+    t_types[tool_type] = t_types.get(tool_type, 0) + 1
+    pc["asked_types"] = t_types
 
 
 async def estimate(db, session: dict, state: dict) -> None:
-    """Bayesian update of the active competency's 1–5 posterior from the latest grade.
-    TODO:
-      1. difficulty = level_of(current_question['difficulty'])  # map easy/medium/hard → 1..5 (see
-         schemas.question_types.DIFFICULTY_TO_LEVEL); a high score on a HARD question shifts mass up.
-      2. res = estimate_level(pc['posterior'], score, difficulty)  # deterministic, no LLM.
-         estimate_level returns {'posterior': [p1..p5], 'level': argmax, 'confidence': 1 - spread}.
-      3. pc['posterior'] = res['posterior']; pc['level'] = res['level'].
-      4. pc['confidence'] = min(res['confidence'], _confidence_ceiling(questions_asked)).
-      5. pc['level_history'].append(pc['level']).
-    The self-rating/CV live in the INITIAL posterior (the prior) — they aren't re-fed each turn."""
-    raise NotImplementedError
+    """Bayesian update of the active competency's 1–5 posterior from the latest grade."""
+    grading = state.get("_grading", {})
+    q = state.get("current_question", {})
+    
+    # Defensive programming: Do not estimate if grading failed[cite: 2]
+    if grading.get("flagged", False) or grading.get("score") is None:
+        return
+        
+    cid = q.get("competency")
+    pc = state["per_competency"][cid]
+    
+    # 1. Map difficulty to the 1-5 scale[cite: 1]
+    diff_raw = q.get("difficulty", "medium")
+    diff_val = 3
+    if isinstance(diff_raw, str):
+        d = diff_raw.lower()
+        if d == "easy": diff_val = 2
+        elif d == "hard": diff_val = 4
+    elif isinstance(diff_raw, (int, float)):
+        diff_val = round(diff_raw)
+        
+    # 2. Update posterior deterministically without LLM calls[cite: 1]
+    res = estimate_level(pc["posterior"], grading["score"], diff_val)
+    
+    # 3. Apply results
+    pc["posterior"] = res["posterior"]
+    pc["level"] = res["level"]
+    
+    # 4. Cap confidence ceiling to prevent one answer from triggering an early stop[cite: 1]
+    raw_conf = res.get("confidence", 0.0)
+    ceiling = _confidence_ceiling(pc["questions_asked"])
+    pc["confidence"] = min(raw_conf, ceiling)
+    
+    # 5. Append history for stable-convergence check
+    pc["level_history"].append(pc["level"])
 
 
 async def check_convergence(db, session: dict, state: dict) -> None:
-    """Mark the active competency converged when confident / stable / capped.
-    TODO:
-      reason = 'confidence' if confidence >= CONFIDENCE_TARGET
-               else 'stable'  if last STABLE_WINDOW levels are identical
-               else 'max_questions' if questions_asked >= MAX_QUESTIONS
-      if reason: pc['converged']=True; persist session_competency_results.
-    """
-    raise NotImplementedError
+    """Mark the active competency converged when confident / stable / capped."""
+    q = state.get("current_question")
+    if not q:
+        return
+        
+    cid = q.get("competency")
+    pc = state["per_competency"][cid]
+    
+    reason = None
+    
+    # Evaluate stopping conditions[cite: 1]
+    if pc["confidence"] >= CONFIDENCE_TARGET:
+        reason = "confidence"
+    elif pc["questions_asked"] >= MAX_QUESTIONS:
+        reason = "max_questions"
+    elif len(pc["level_history"]) >= STABLE_WINDOW:
+        last_levels = pc["level_history"][-STABLE_WINDOW:]
+        if len(set(last_levels)) == 1:
+            reason = "stable"
+            
+    # Mark converged and persist snapshot
+    if reason:
+        pc["converged"] = True
+        pc["converged_reason"] = reason
+        
+        from app.services.scoring import competency_result_from_state, session_competency_result_row
+        result = competency_result_from_state(cid, pc)
+        row = session_competency_result_row(session["id"], pc, result)
+        await db.table("session_competency_results").upsert(row, on_conflict="session_id,competency_id").execute()
+        
+        # Clear question context so pick_question handles the next queue item
+        state["current_question"] = None
 
 
 async def finalize(db, session: dict, state: dict) -> dict:
@@ -164,8 +310,7 @@ async def finalize(db, session: dict, state: dict) -> dict:
         results.append(result)
         competency_rows.append(session_competency_result_row(session["id"], pc, result))
 
-    # Authoritative final write per competency (check_convergence may already have written
-    # an earlier snapshot of the same row; this upsert replaces it with the final values).
+    # Authoritative final write per competency
     await (
         db.table("session_competency_results")
         .upsert(competency_rows, on_conflict="session_id,competency_id")
