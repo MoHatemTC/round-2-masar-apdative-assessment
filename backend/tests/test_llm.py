@@ -14,7 +14,7 @@ def test_retry_then_success(monkeypatch):
         body=None,
     )
 
-    create = Mock(
+    create = AsyncMock(
         side_effect=[
             first_error,
             SimpleNamespace(
@@ -58,7 +58,7 @@ def test_all_retries_fail_returns_failure(monkeypatch):
         body=None,
     )
 
-    create = Mock(side_effect=error)
+    create = AsyncMock(side_effect=error)
 
     monkeypatch.setattr(
         llm,
@@ -105,8 +105,32 @@ def test_invalid_kind_raises():
         assert "Invalid kind" in str(exc)
 
 
+def test_logging_failure_does_not_crash(monkeypatch):
+    """A Supabase/logging failure must never propagate out of call_llm."""
+    create = AsyncMock(
+        return_value=SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="fine response"))]
+        )
+    )
+
+    monkeypatch.setattr(
+        llm,
+        "_client",
+        SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create))),
+    )
+    # Simulate the DB insert itself failing (e.g. network blip, schema drift) --
+    # a completely different kind of error than APIError/APITimeoutError.
+    monkeypatch.setattr(llm, "_log_to_ai_logs", AsyncMock(side_effect=RuntimeError("db unavailable")))
+
+    # This must NOT raise -- call_llm's whole contract is "never raises".
+    result = asyncio.run(llm.call_llm("test prompt", kind="grade"))
+
+    assert result["success"] is True
+    assert result["text"] == "fine response"
+
+
 def test_logs_on_success(monkeypatch):
-    create = Mock(
+    create = AsyncMock(
         return_value=SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content="logged response"))]
         )
