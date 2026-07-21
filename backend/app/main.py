@@ -2,7 +2,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routes import admin, chat
+from app.routes import admin, candidate_intake, chat
 
 app = FastAPI(title="Adaptive Competency Assessment (intern starter)")
 

@@ -56,11 +56,19 @@ class FakeQuery:
         self._filters.append((field, value))
         return self
 
+    def in_(self, field: str, values: list) -> "FakeQuery":
+        self._filters.append((field, set(values)))
+        return self
+
     def _rows(self) -> list[dict]:
         return self._tables.setdefault(self._table_name, [])
 
     def _matches(self, row: dict) -> bool:
-        return all(row.get(field) == value for field, value in self._filters)
+        def one(field, value):
+            if isinstance(value, set):
+                return row.get(field) in value
+            return row.get(field) == value
+        return all(one(field, value) for field, value in self._filters)
 
     async def execute(self) -> FakeResult:
         rows = self._rows()
