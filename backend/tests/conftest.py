@@ -123,6 +123,19 @@ def fake_db():
 
 
 @pytest.fixture
+def supabase_client(fake_db: FakeDB) -> FakeDB:
+    """Alias of `fake_db` under the name `tests/ingestion/*` expects.
+
+    `app/ingestion/upserts.py` is written against the real Supabase `AsyncClient`'s
+    `.table(...).select/insert/update(...).eq(...).execute()` surface (see its own comment:
+    "FakeDB does not support delete(), so we avoid it and update/insert only") — `FakeDB`
+    already implements exactly that surface, so the ingestion tests reuse the same fake the
+    intake tests use rather than needing a second one.
+    """
+    return fake_db
+
+
+@pytest.fixture
 def client(fake_db, monkeypatch):
     """A FastAPI TestClient mounting only the intake router, with `get_db` patched to return
     `fake_db`. Mounting just this router (rather than the full `app.main.app`) keeps the test
