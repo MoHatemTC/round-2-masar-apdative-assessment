@@ -10,7 +10,8 @@ import os
 import asyncio
 import logging
 from openai import AsyncOpenAI, APIError, APITimeoutError
-from app.db import get_db  # adjust import path to match your actual db.py location
+
+from app.db import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,7 @@ _client = AsyncOpenAI(
     base_url=os.environ["LLM_BASE_URL"],
     api_key=os.environ["LLM_API_KEY"],
 )
+
 MODEL = os.environ.get("LLM_MODEL", "kimi-k2.5")
 MAX_TOKENS = 2000
 MAX_RETRIES = 3
@@ -30,7 +32,15 @@ VALID_KINDS = {"personalize", "grade", "cv_estimate", "stt", "generate"}
 async def call_llm(prompt: str, *, kind: str, session_id: str | None = None) -> dict:
     """
     Call the LLM with retries + exponential backoff. Logs the final outcome to ai_logs.
-    ...
+
+    `kind` must be one of VALID_KINDS (matches the ai_logs.kind column's expected values).
+    `session_id` is optional — pass it when the call happens within a candidate session,
+    so the log row can be traced back to that session.
+
+    Returns: {"success": bool, "text": str | None, "error": str | None}
+    Never raises — callers (like grade_answer) must be able to degrade gracefully.
+    A failure to WRITE the log (separate from a failure to call the LLM) is also
+    swallowed, so telemetry can never take down grading.
     """
     if kind not in VALID_KINDS:
         raise ValueError(f"Invalid kind {kind!r}. Must be one of {VALID_KINDS}")
@@ -54,12 +64,13 @@ async def call_llm(prompt: str, *, kind: str, session_id: str | None = None) -> 
             if attempt < MAX_RETRIES:
                 await asyncio.sleep(BASE_BACKOFF_SECONDS * (2 ** (attempt - 1)))
 
+    # All retries exhausted — log the failure too (response left null), then return gracefully.
     await _safe_log(session_id=session_id, kind=kind, prompt=prompt, response=None)
     return {"success": False, "text": None, "error": last_error}
 
 
 async def _safe_log(*, session_id: str | None, kind: str, prompt: str, response: str | None) -> None:
-    """Wraps _log_to_ai_logs so a logging failure can never crash grading."""
+    """Wraps _log_to_ai_logs so a logging/DB failure can never crash call_llm's caller."""
     try:
         await _log_to_ai_logs(session_id=session_id, kind=kind, prompt=prompt, response=response)
     except Exception as e:
