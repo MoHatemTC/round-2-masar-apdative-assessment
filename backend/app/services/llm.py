@@ -9,16 +9,15 @@ from __future__ import annotations
 import os
 import asyncio
 import logging
-from openai import OpenAI, APIError, APITimeoutError
+from openai import AsyncOpenAI, APIError, APITimeoutError
 from app.db import get_db  # adjust import path to match your actual db.py location
 
 logger = logging.getLogger(__name__)
 
-_client = OpenAI(
+_client = AsyncOpenAI(
     base_url=os.environ["LLM_BASE_URL"],
     api_key=os.environ["LLM_API_KEY"],
 )
-
 MODEL = os.environ.get("LLM_MODEL", "kimi-k2.5")
 MAX_TOKENS = 2000
 MAX_RETRIES = 3
@@ -47,10 +46,10 @@ async def call_llm(prompt: str, *, kind: str, session_id: str | None = None) -> 
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            response = _client.chat.completions.create(
-                model=MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                max_completion_tokens=MAX_TOKENS,
+            response = await _client.chat.completions.create(
+            model=MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            max_completion_tokens=MAX_TOKENS,
             )
             response_text = response.choices[0].message.content
             await _log_to_ai_logs(session_id=session_id, kind=kind, prompt=prompt, response=response_text)
