@@ -5,8 +5,6 @@ from pydantic import BaseModel
 from uuid import UUID
 
 from app.db import get_db
-from app.schemas.question_types import validate_question_payload
-from typing import List, Optional
 from supabase import AsyncClient
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -44,51 +42,22 @@ async def import_bank(items: list[dict] = Body(...), set_name: str | None = None
     raise NotImplementedError
 
 @router.get("/question-sets/{set_id}/competencies")
-async def set_competencies(set_id: str):
-    """The distinct TRACK competencies covered by a set's questions (subs roll up to parent).
-    Used by the assessment form to auto-derive what an assessment measures. TODO."""
-    db = await get_db()
-
-    items_response = (
-        await db.table("question_set_items")
-        .select("question_id")
-        .eq("set_id", set_id)
-        .execute()
-    )
-
+async def set_competencies(set_id: str, db: AsyncClient = Depends(get_db)):
+    """The distinct TRACK competencies covered by a set's questions."""
+    items_response = await db.table("question_set_items").select("question_id").eq("set_id", set_id).execute()
     if not items_response.data:
         raise HTTPException(status_code=404, detail="Question set not found")
 
+    # Extract IDs and fetch the corresponding competencies from the bank
     question_ids = [item["question_id"] for item in items_response.data]
-
-    bank_response = (
-        await db.table("question_bank")
-        .select("competency_id")
-        .in_("id", question_ids)
-        .execute()
-    )
-
-    sub_ids = [
-        question["competency_id"]
-        for question in bank_response.data
-        if question.get("competency_id")
-    ]
-
-    competencies_response = (
-        await db.table("competencies")
-        .select("parent_id")
-        .in_("id", sub_ids)
-        .execute()
-    )
-
-    track_ids = list(
-        set(
-            competency["parent_id"]
-            for competency in competencies_response.data
-            if competency.get("parent_id")
-        )
-    )
-
+    bank_response = await db.table("question_bank").select("competency_id").in_("id", question_ids).execute()
+    
+    sub_ids = [q["competency_id"] for q in bank_response.data if q.get("competency_id")]
+    
+    # Map the sub-competencies up to their parent tracks
+    competencies_response = await db.table("competencies").select("parent_id").in_("id", sub_ids).execute()
+    track_ids = list(set(c["parent_id"] for c in competencies_response.data if c.get("parent_id")))
+    
     return track_ids
 
 @router.post("/assessments", response_model=AssessmentResponse)
@@ -113,12 +82,11 @@ async def create_assessment(payload: AssessmentCreate, db: AsyncClient = Depends
     return insert_response.data[0]
     
 @router.get("/assessments", response_model=list[AssessmentResponse])
-async def list_assessments():
+async def list_assessments(db: AsyncClient = Depends(get_db)):
     """
     Queries the database for all created assessments
     and returns them to the admin dashboard.
     """
-    db = await get_db()
     response = await db.table("assessments").select("*").execute()
     return response.data
 
@@ -127,3 +95,36 @@ async def list_assessments():
 async def get_report(session_id: str):
     """Return the final_reports row + per-competency results for the admin review page. TODO."""
     raise NotImplementedError
+
+@router.get("/assessments/{assessment_id}/invitations")
+async def list_invitations(assessment_id: UUID, db: AsyncClient = Depends(get_db)):
+    """Lists invitations and cross-references session status for each candidate."""
+    # Fetch all invitations for the given assessment
+    invitations_response = await db.table("invitations").select("*").eq("assessment_id", str(assessment_id)).execute()
+    invitations = invitations_response.data or []
+
+    # Fetch all session statuses for the given assessment
+    sessions_response = await db.table("sessions").select("candidate_email, status").eq("assessment_id", str(assessment_id)).execute()
+    sessions_map = {s["candidate_email"]: s["status"] for s in sessions_response.data} if sessions_response.data else {}
+
+    results = []
+    # Cross-reference the candidate emails to determine the actual status
+    for inv in invitations:
+        email = inv.get("candidate_email")
+        session_status = sessions_map.get(email)
+        
+        if session_status == "completed":
+            status_label = "taken"
+        elif session_status:
+            status_label = "in_progress"
+        else:
+            status_label = "not_taken"
+            
+        results.append({
+            "id": inv.get("id"),
+            "candidate_email": email,
+            "status": status_label,
+            "invited_at": inv.get("created_at")
+        })
+
+    return results
