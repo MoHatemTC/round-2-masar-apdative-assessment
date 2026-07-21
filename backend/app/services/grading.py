@@ -66,7 +66,9 @@ async def grade_answer(tool_type: str, question: dict, tool_result: dict, sessio
 
     return _parse_llm_grade(result["text"])
 
+
 def _parse_llm_grade(text: str | None) -> dict:
+    """Parse 'SCORE: <n>\\nRATIONALE: <text>' from the LLM's response."""
     if not text:
         return {"score": None, "rationale": "Empty response from grader — flagged.", "flagged": True}
 
@@ -79,7 +81,7 @@ def _parse_llm_grade(text: str | None) -> dict:
     score = max(0.0, min(5.0, float(score_match.group(1))))
     rationale = rationale_match.group(1).strip()
 
-    return {"score": score, "rationale": rationale, "flagged": False}   
+    return {"score": score, "rationale": rationale, "flagged": False} 
 
 def estimate_level(posterior: list[float], score: float, difficulty: int) -> dict:
     """DETERMINISTIC Bayesian update — NO LLM call. Given the running `posterior` over levels {1..5},
