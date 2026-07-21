@@ -18,4 +18,5 @@ async def main():
     print("Score:", result["score"])
     print("Rationale:", result["rationale"])
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main()) 
