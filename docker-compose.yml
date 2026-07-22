@@ -1,0 +1,35 @@
+# Adaptive Assessment — full stack.
+#
+# Intentionally two services only: `backend` and `frontend`. There is NO database service here —
+# the database is remote Supabase (a hosted Postgres), reached over the network via
+# SUPABASE_URL/SUPABASE_KEY in .env. Adding a local Postgres container would just be a second,
+# disconnected database nobody's actually using.
+#
+# Usage:
+#   1. cp .env.example .env   and fill in real values (see .env.example for what each one is).
+#   2. docker compose up --build
+#   3. Frontend: http://localhost:3000   Backend: http://localhost:8000/health
+
+services:
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Baked into the browser bundle at BUILD time, not read at container start — see the
+        # comment on this same ARG in frontend/Dockerfile for why. Reads from .env so a person
+        # deploying somewhere other than localhost only has to edit one file.
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped

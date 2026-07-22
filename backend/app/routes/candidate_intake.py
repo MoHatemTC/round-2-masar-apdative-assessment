@@ -7,14 +7,30 @@ other lanes' seams (`app/agent/adaptive_loop.py`, `app/services/question_bank.py
 """
 from __future__ import annotations
 
+import io
+import os
+import uuid as uuid_lib
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, File, HTTPException, UploadFile
+from pypdf import PdfReader
 
 from app.db import get_db
 from app.services.prior import compute_priors
 
 router = APIRouter(tags=["candidate-intake"])
+
+MAX_CV_BYTES = 5 * 1024 * 1024  # 5 MB — generous for a resume, small enough to reject junk fast
+SUPPORTED_CV_EXTENSIONS = {".txt", ".pdf"}
+
+
+def _is_valid_uuid(value) -> bool:
+    """Whether `value` is *syntactically* a UUID — doesn't check it exists anywhere."""
+    try:
+        uuid_lib.UUID(str(value))
+        return True
+    except (ValueError, AttributeError, TypeError):
+        return False
 
 
 def _require_str(value, field: str) -> str:
@@ -22,6 +38,29 @@ def _require_str(value, field: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise HTTPException(status_code=422, detail=f"'{field}' is required.")
     return value
+
+
+def _extract_cv_text(filename: str, content: bytes) -> str:
+    """Best-effort text extraction from an uploaded CV file. Supports .txt and .pdf (checked
+    against SUPPORTED_CV_EXTENSIONS at the call site). Raises a 422 for anything unreadable —
+    never silently returns garbage for the LLM to reason about later."""
+    ext = os.path.splitext(filename or "")[1].lower()
+
+    if ext == ".txt":
+        return content.decode("utf-8", errors="ignore").strip()
+
+    if ext == ".pdf":
+        try:
+            reader = PdfReader(io.BytesIO(content))
+            pages = [page.extract_text() or "" for page in reader.pages]
+        except Exception as exc:  # noqa: BLE001 - any malformed/corrupt PDF must 422, not 500
+            raise HTTPException(status_code=422, detail=f"Could not read PDF: {exc}") from exc
+        return "\n".join(pages).strip()
+
+    raise HTTPException(
+        status_code=422,
+        detail=f"Unsupported CV file type '{ext}'. Supported: {', '.join(sorted(SUPPORTED_CV_EXTENSIONS))}.",
+    )
 
 
 def _validate_self_ratings(raw) -> dict[str, int]:
@@ -108,6 +147,23 @@ async def submit_intake(session_id: str, body: dict = Body(...)):
 
     self_ratings = _validate_self_ratings(body.get("self_ratings"))
 
+    # Competency ids must (a) look like a UUID and (b) actually exist — checked here, before any
+    # writes happen, so a bad id can never leave `sessions` and `session_self_ratings` half-written
+    # relative to each other (session_self_ratings.competency_id is a foreign key: Postgres would
+    # reject a nonexistent one, but only *after* we'd already updated `sessions`).
+    malformed = [c for c in self_ratings if not _is_valid_uuid(c)]
+    if malformed:
+        raise HTTPException(
+            status_code=422,
+            detail=[f"'{c}' is not a valid competency id (must be a UUID)." for c in malformed],
+        )
+
+    found = await db.table("competencies").select("id").in_("id", list(self_ratings.keys())).execute()
+    existing_ids = {row["id"] for row in found.data}
+    unknown = [c for c in self_ratings if c not in existing_ids]
+    if unknown:
+        raise HTTPException(status_code=404, detail=f"unknown competency id(s): {unknown}")
+
     # cv_json may have been sent at /session/start already; let /intake override it if given again.
     cv_json = body.get("cv_json", session.get("cv_json"))
 
@@ -134,3 +190,84 @@ async def submit_intake(session_id: str, body: dict = Body(...)):
         }).execute()
 
     return {"session_id": session_id, "self_ratings": self_ratings, "priors": priors}
+
+
+@router.get("/assessments/by-token/{share_token}")
+async def get_assessment_by_token(share_token: str):
+    """Candidate-facing, read-only: resolve a share link's token into what the entry flow needs —
+    the assessment id/title and the competencies to self-rate. The token itself is the credential
+    (same idea as any unauthenticated share link), so this deliberately requires no auth. This is
+    separate from admin.py's `/assessments` CRUD routes, which are the admin-facing management
+    surface for the same table.
+    """
+    db = await get_db()
+
+    found = await db.table("assessments").select("*").eq("share_token", share_token).execute()
+    if not found.data:
+        raise HTTPException(status_code=404, detail="This assessment link is invalid or has expired.")
+    assessment = found.data[0]
+
+    if not assessment.get("is_published"):
+        raise HTTPException(status_code=404, detail="This assessment is not currently open.")
+
+    competency_ids = assessment.get("competency_ids") or []
+    competencies = []
+    if competency_ids:
+        comp_resp = await db.table("competencies").select("id,name,code").in_("id", competency_ids).execute()
+        competencies = [
+            {"id": c["id"], "name": c.get("name") or c.get("code")} for c in comp_resp.data
+        ]
+
+    return {
+        "assessment_id": assessment["id"],
+        "title": assessment["title"],
+        "competencies": competencies,
+    }
+
+
+@router.post("/session/{session_id}/cv")
+async def upload_cv(session_id: str, file: UploadFile = File(...)):
+    """Accept a candidate's CV file, extract its text, and store it in `sessions.cv_json`.
+
+    Supported formats: .txt, .pdf (max 5MB). Deliberately does NOT run CV competency estimation
+    here — that's a separate, LLM-backed step (`question_bank.cv_estimate_levels`) that the
+    adaptive loop calls once, at `init_session`. Doing the estimate here too would mean paying
+    for (and waiting on) an LLM call twice, or getting two different estimates if the candidate
+    re-uploads. This endpoint's job is just: get the text safely into `sessions.cv_json` and give
+    the frontend something to show as upload feedback.
+
+    Returns `{session_id, filename, characters_extracted, message}` — enough for the intake
+    screen to show "CV uploaded (1,842 characters read)" without waiting on an LLM round-trip.
+    """
+    db = await get_db()
+
+    session_resp = await db.table("sessions").select("id").eq("id", session_id).execute()
+    if not session_resp.data:
+        raise HTTPException(status_code=404, detail=f"session '{session_id}' not found.")
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=422, detail="Uploaded CV file is empty.")
+    if len(content) > MAX_CV_BYTES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"CV file too large ({len(content)} bytes; max {MAX_CV_BYTES} bytes).",
+        )
+
+    raw_text = _extract_cv_text(file.filename or "", content)
+    if not raw_text:
+        raise HTTPException(status_code=422, detail="Could not extract any text from the uploaded CV.")
+
+    cv_json = {
+        "filename": file.filename,
+        "raw_text": raw_text,
+        "uploaded_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.table("sessions").update({"cv_json": cv_json}).eq("id", session_id).execute()
+
+    return {
+        "session_id": session_id,
+        "filename": file.filename,
+        "characters_extracted": len(raw_text),
+        "message": "CV received.",
+    }
