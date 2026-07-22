@@ -182,185 +182,69 @@ async def import_bank(
 # =========================================================
 
 
-@router.get(
-    "/question-sets/{set_id}/competencies"
-)
+@router.get("/question-sets/{set_id}/competencies")
 async def set_competencies(
     set_id: str,
 ):
-
     """
-    Return TRACK competencies covered by a question set.
-
-    Flow:
-
-    Question Set
-          |
-          v
-    Question Set Items
-          |
-          v
-    Questions
-          |
-          v
-    Sub Competencies
-          |
-          v
-    Parent Competencies
+    Return UUIDs of the parent competencies
+    covered by a question set.
     """
-
 
     db = await get_db()
 
-
-
-    # -----------------------------------------------------
-    # 1. Get questions from question set
-    # -----------------------------------------------------
-
-
     items_response = (
-        await db.table(
-            "question_set_items"
-        )
-        .select(
-            "question_id"
-        )
-        .eq(
-            "question_set_id",
-            set_id,
-        )
+        await db.table("question_set_items")
+        .select("question_id")
+        .eq("set_id", set_id)
         .execute()
     )
 
-
     if not items_response.data:
-
         raise HTTPException(
             status_code=404,
             detail="Question set not found",
         )
 
-
-
     question_ids = [
-
         item["question_id"]
-
         for item in items_response.data
-
     ]
 
-
-
-    # -----------------------------------------------------
-    # 2. Get sub competencies
-    # -----------------------------------------------------
-
-
     questions_response = (
-
-        await db.table(
-            "questions"
-        )
-        .select(
-            "competency_id"
-        )
-        .in_(
-            "id",
-            question_ids,
-        )
+        await db.table("question_bank")
+        .select("competency_id")
+        .in_("id", question_ids)
         .execute()
-
     )
-
-
 
     sub_ids = list(
         {
             q["competency_id"]
-
             for q in questions_response.data
-
             if q.get("competency_id")
         }
     )
 
-
-
     if not sub_ids:
-
         return []
 
-
-
-    # -----------------------------------------------------
-    # 3. Resolve parent tracks
-    # -----------------------------------------------------
-
-
-    sub_response = (
-
-        await db.table(
-            "competencies"
-        )
-        .select(
-            "id,parent_id"
-        )
-        .in_(
-            "id",
-            sub_ids,
-        )
+    competencies_response = (
+        await db.table("competencies")
+        .select("parent_id")
+        .in_("id", sub_ids)
         .execute()
-
     )
-
-
 
     track_ids = list(
         {
             row["parent_id"]
-
-            for row in sub_response.data
-
+            for row in competencies_response.data
             if row.get("parent_id")
         }
     )
 
-
-
-    if not track_ids:
-
-        return []
-
-
-
-    # -----------------------------------------------------
-    # 4. Return track details
-    # -----------------------------------------------------
-
-
-    tracks_response = (
-
-        await db.table(
-            "competencies"
-        )
-        .select(
-            "id,code,name"
-        )
-        .in_(
-            "id",
-            track_ids,
-        )
-        .execute()
-
-    )
-
-
-    return tracks_response.data
-
-
-
+    return track_ids
 
 # =========================================================
 # Create Assessment
