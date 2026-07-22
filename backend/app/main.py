@@ -2,13 +2,14 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routes import admin, chat
+from app.routes import admin, chat, candidate_intake
 
 app = FastAPI(title="Adaptive Competency Assessment (intern starter)")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )

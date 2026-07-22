@@ -1,8 +1,10 @@
 "use client";
 
+import type { ReactNode } from "react";
+
 interface TableProps {
   headers: string[];
-  rows: (string | number)[][];
+  rows: ReactNode[][];
 }
 
 export default function Table({ headers, rows }: TableProps) {

@@ -5,7 +5,7 @@ interface FormFieldProps {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
-  type?: "text" | "textarea";
+  type?: "text" | "textarea" | "number";
   rows?: number;
 }
 
@@ -33,7 +33,7 @@ export default function FormField({
         />
       ) : (
         <input
-          type="text"
+          type={type}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
