@@ -103,6 +103,50 @@ def test_upload_cv_handles_a_real_pdf_via_pypdf(client, fake_db):
     assert "extract" in resp.json()["detail"].lower()
 
 
+# ── GET /assessments/by-token/{share_token} ────────────────────────────────────
+
+def test_get_assessment_by_token_returns_assessment_and_competencies(client, fake_db):
+    fake_db.seed("competencies", {"id": COMPETENCY_A, "name": "Python"})
+    fake_db.seed("competencies", {"id": COMPETENCY_B, "name": "SQL"})
+    fake_db.seed("assessments", {
+        "id": "a-1", "title": "Backend Engineer Assessment",
+        "share_token": "tok-abc", "is_published": True,
+        "competency_ids": [COMPETENCY_A, COMPETENCY_B],
+    })
+
+    resp = client.get("/assessments/by-token/tok-abc")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["assessment_id"] == "a-1"
+    assert body["title"] == "Backend Engineer Assessment"
+    assert {c["id"] for c in body["competencies"]} == {COMPETENCY_A, COMPETENCY_B}
+
+
+def test_get_assessment_by_token_404_when_token_unknown(client):
+    resp = client.get("/assessments/by-token/does-not-exist")
+    assert resp.status_code == 404
+
+
+def test_get_assessment_by_token_404_when_not_published(client, fake_db):
+    fake_db.seed("assessments", {
+        "id": "a-1", "title": "Draft", "share_token": "tok-draft",
+        "is_published": False, "competency_ids": [],
+    })
+    resp = client.get("/assessments/by-token/tok-draft")
+    assert resp.status_code == 404
+
+
+def test_get_assessment_by_token_handles_no_competencies(client, fake_db):
+    fake_db.seed("assessments", {
+        "id": "a-1", "title": "Empty", "share_token": "tok-empty",
+        "is_published": True, "competency_ids": [],
+    })
+    resp = client.get("/assessments/by-token/tok-empty")
+    assert resp.status_code == 200
+    assert resp.json()["competencies"] == []
+
+
 def test_start_session_creates_row_and_returns_id(client, fake_db):
     assessment = fake_db.seed("assessments", {"id": "a-1", "title": "AI Engineer"})
 

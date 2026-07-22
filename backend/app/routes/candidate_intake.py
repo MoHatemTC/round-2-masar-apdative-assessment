@@ -192,6 +192,39 @@ async def submit_intake(session_id: str, body: dict = Body(...)):
     return {"session_id": session_id, "self_ratings": self_ratings, "priors": priors}
 
 
+@router.get("/assessments/by-token/{share_token}")
+async def get_assessment_by_token(share_token: str):
+    """Candidate-facing, read-only: resolve a share link's token into what the entry flow needs —
+    the assessment id/title and the competencies to self-rate. The token itself is the credential
+    (same idea as any unauthenticated share link), so this deliberately requires no auth. This is
+    separate from admin.py's `/assessments` CRUD routes, which are the admin-facing management
+    surface for the same table.
+    """
+    db = await get_db()
+
+    found = await db.table("assessments").select("*").eq("share_token", share_token).execute()
+    if not found.data:
+        raise HTTPException(status_code=404, detail="This assessment link is invalid or has expired.")
+    assessment = found.data[0]
+
+    if not assessment.get("is_published"):
+        raise HTTPException(status_code=404, detail="This assessment is not currently open.")
+
+    competency_ids = assessment.get("competency_ids") or []
+    competencies = []
+    if competency_ids:
+        comp_resp = await db.table("competencies").select("id,name,code").in_("id", competency_ids).execute()
+        competencies = [
+            {"id": c["id"], "name": c.get("name") or c.get("code")} for c in comp_resp.data
+        ]
+
+    return {
+        "assessment_id": assessment["id"],
+        "title": assessment["title"],
+        "competencies": competencies,
+    }
+
+
 @router.post("/session/{session_id}/cv")
 async def upload_cv(session_id: str, file: UploadFile = File(...)):
     """Accept a candidate's CV file, extract its text, and store it in `sessions.cv_json`.
