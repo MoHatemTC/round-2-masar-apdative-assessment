@@ -53,7 +53,7 @@ from app.ingestion.upserts import (
 
 router = APIRouter(
     prefix="/admin/import",
-    tags=["Question Bank Import"],
+    # tags=["Question Bank Import"],
 )
 
 
@@ -101,19 +101,11 @@ async def import_bank(
     payload: QuestionBankImport,
     db: AsyncClient = Depends(get_supabase),
 ):
-    """
-    Validate then import.
+    print("========== IMPORT ROUTE HIT ==========")
 
-    Import is aborted if any validation
-    errors exist.
-    """
-
-    errors = validate_import(
-        payload,
-    )
+    errors = validate_import(payload)
 
     if errors:
-
         return ImportSummary(
             success=False,
             competencies_imported=0,
@@ -123,14 +115,9 @@ async def import_bank(
         )
 
     try:
-
-        await import_question_bank(
-            db,
-            payload,
-        )
+        await import_question_bank(db, payload)
 
     except Exception as exc:
-
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Import failed: {exc}",
@@ -138,19 +125,11 @@ async def import_bank(
 
     return ImportSummary(
         success=True,
-        competencies_imported=len(
-            payload.competencies
-        ),
-        questions_imported=len(
-            payload.questions
-        ),
-        question_set_items_imported=len(
-            payload.question_set.items
-        ),
+        competencies_imported=len(payload.competencies),
+        questions_imported=len(payload.questions),
+        question_set_items_imported=len(payload.question_set.items),
         errors=[],
     )
-
-
 # ---------------------------------------------------------
 # Health endpoint
 # ---------------------------------------------------------

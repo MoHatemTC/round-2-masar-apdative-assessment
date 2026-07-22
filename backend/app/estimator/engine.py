@@ -13,9 +13,9 @@ renormalize
     ↓
 argmax -> estimated level
     ↓
-confidence = posterior concentration
+confidence calculation
     ↓
-confidence clamp
+CONFIDENCE_CLAMP applied
     ↓
 append level_history
     ↓
@@ -37,8 +37,13 @@ from .contract import (
     EstimatorInput,
     EstimatorResult,
 )
+
 from .likelihood import likelihood
-from .stop_conditions import evaluate_stop_conditions
+
+from .stop_conditions import (
+    evaluate_stop_conditions,
+)
+
 from .types import (
     UNIFORM_PRIOR,
     confidence_cap,
@@ -49,7 +54,7 @@ def _normalize(
     posterior: Dict[int, float],
 ) -> Dict[int, float]:
     """
-    Normalize probabilities so they sum to one.
+    Normalize posterior probabilities.
     """
 
     total = sum(posterior.values())
@@ -62,20 +67,19 @@ def _normalize(
         for level, probability in posterior.items()
     }
 
-    # Defensive invariant
     assert abs(sum(normalized.values()) - 1.0) < 1e-9
 
     return normalized
+
 
 
 def _argmax(
     posterior: Dict[int, float],
 ) -> int:
     """
-    Maximum-a-posteriori estimate.
+    MAP estimate.
 
-    Ties are broken in favour of the higher competency
-    level to keep behaviour deterministic.
+    Higher level wins ties.
     """
 
     return max(
@@ -87,21 +91,17 @@ def _argmax(
     )[0]
 
 
+
 def _confidence(
     posterior: Dict[int, float],
 ) -> float:
     """
-    Estimate posterior concentration.
-
-    A perfectly uniform posterior has confidence near 0.
-
-    A highly concentrated posterior approaches 1.
-
-    This implementation intentionally preserves the
-    behaviour expected by the current estimator tests.
+    Posterior concentration confidence.
     """
 
-    probabilities = list(posterior.values())
+    probabilities = list(
+        posterior.values()
+    )
 
     highest = max(probabilities)
 
@@ -110,7 +110,8 @@ def _confidence(
             abs(highest - p)
             for p in probabilities
         )
-        / (len(probabilities) - 1)
+        /
+        (len(probabilities) - 1)
     )
 
     confidence = 1.0 - spread
@@ -121,61 +122,109 @@ def _confidence(
     )
 
 
+
 def estimate_level(
     state: EstimatorInput,
 ) -> EstimatorResult:
     """
-    Perform one Bayesian update.
-
-    prior
-        ×
-    likelihood
-        ↓
-    posterior
-        ↓
-    MAP estimate
-        ↓
-    confidence
-        ↓
-    stop evaluation
+    Perform one Bayesian estimation update.
     """
 
     prior = state.posterior
+
+
+    # -------------------------------
+    # Likelihood update
+    # -------------------------------
 
     observation = likelihood(
         score=state.score,
         difficulty=state.difficulty,
     )
 
-    # Defensive invariant
-    assert set(prior.keys()) == set(observation.keys())
+
+    assert set(prior.keys()) == set(
+        observation.keys()
+    )
+
 
     posterior = {
         level: prior[level] * observation[level]
         for level in prior
     }
 
-    posterior = _normalize(posterior)
 
-    estimated_level = _argmax(posterior)
+    posterior = _normalize(
+        posterior
+    )
 
-    confidence = _confidence(posterior)
 
-    question_count = state.question_count + 1
+    # -------------------------------
+    # Estimate level
+    # -------------------------------
+
+    estimated_level = _argmax(
+        posterior
+    )
+
+
+    # -------------------------------
+    # Confidence calculation
+    # -------------------------------
+
+    confidence = _confidence(
+        posterior
+    )
+
+
+    question_count = (
+        state.question_count + 1
+    )
+
+
+    # -------------------------------
+    # CONFIDENCE_CLAMP
+    #
+    # Prevent early lucky answers
+    # from reaching stop threshold.
+    #
+    # Example:
+    # Q1 -> max 0.50
+    # Q2 -> max 0.70
+    # Q3 -> max 0.85
+    # Q4+ -> max 0.97
+    # -------------------------------
 
     confidence = min(
         confidence,
         confidence_cap(question_count),
     )
 
-    history = list(state.level_history)
-    history.append(estimated_level)
 
-    stopped, low_confidence = evaluate_stop_conditions(
-        history=history,
-        confidence=confidence,
-        question_count=question_count,
+    # -------------------------------
+    # History
+    # -------------------------------
+
+    history = list(
+        state.level_history
     )
+
+    history.append(
+        estimated_level
+    )
+
+
+    # IMPORTANT:
+    # pass the already clamped confidence
+    # into stop evaluation
+    stopped, low_confidence = (
+        evaluate_stop_conditions(
+            history=history,
+            confidence=confidence,
+            question_count=question_count,
+        )
+    )
+
 
     return EstimatorResult(
         posterior=posterior,

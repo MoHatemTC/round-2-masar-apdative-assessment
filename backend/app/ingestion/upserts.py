@@ -4,9 +4,9 @@ Idempotent Question Bank upserts.
 Responsibilities:
 - Upsert competencies by code
 - Resolve parent_id relationships
-- Upsert questions by source_ref
-- Create/update Question Set
-- Create Question Set Items
+- Upsert Question Bank entries by source_ref
+- Create/update Question Sets
+- Upsert Question Set Items
 
 Uses Supabase Python client.
 
@@ -28,71 +28,78 @@ from .schemas import QuestionBankImport
 async def upsert_competencies(
     db: AsyncClient,
     payload: QuestionBankImport,
-) -> Dict[str, int]:
+) -> Dict[str, str]:
+    """
+    Upsert competencies using the unique `code` column.
 
-    code_to_id: Dict[str, int] = {}
+    Root competencies become kind="track".
+    Child competencies become kind="sub".
+
+    Parent relationships are resolved afterwards once
+    all IDs exist.
+    """
+
+    code_to_id: Dict[str, str] = {}
+
+    # -----------------------------------------------------
+    # Create / Update competencies
+    # -----------------------------------------------------
 
     for competency in payload.competencies:
 
-        existing = await (
+        row = {
+            "kind": (
+                "track"
+                if competency.parent_code is None
+                else "sub"
+            ),
+            "code": competency.code,
+            "name": competency.name,
+            "domain": None,
+            "parent_id": None,
+            "sort_order": 0,
+            "is_active": True,
+        }
+
+        result = await (
             db.table("competencies")
-            .select("*")
-            .eq(
-                "code",
-                competency.code,
+            .upsert(
+                row,
+                on_conflict="code",
             )
             .execute()
         )
 
-        row = {
-            "code": competency.code,
-            "name": competency.name,
-            "parent_id": None,
-        }
-
-        if existing.data:
-
-            await (
-                db.table("competencies")
-                .update(row)
-                .eq(
-                    "code",
-                    competency.code,
-                )
-                .execute()
+        if not result.data:
+            raise Exception(
+                f"Failed to upsert competency '{competency.code}'"
             )
 
-            code_to_id[competency.code] = (
-                existing.data[0]["id"]
-            )
+        code_to_id[competency.code] = result.data[0]["id"]
 
-        else:
-
-            result = await (
-                db.table("competencies")
-                .insert(row)
-                .execute()
-            )
-
-            code_to_id[competency.code] = (
-                result.data[0]["id"]
-            )
-
-
-    # update parents
+    # -----------------------------------------------------
+    # Resolve parent relationships
+    # -----------------------------------------------------
 
     for competency in payload.competencies:
 
         if competency.parent_code is None:
             continue
 
+        parent_id = code_to_id.get(
+            competency.parent_code
+        )
+
+        if parent_id is None:
+            raise Exception(
+                f"Parent competency '{competency.parent_code}' not found."
+            )
+
         await (
             db.table("competencies")
             .update(
                 {
-                    "parent_id": code_to_id[
-                        competency.parent_code
-                    ]
+                    "parent_id": parent_id,
                 }
             )
             .eq(
@@ -102,70 +109,59 @@ async def upsert_competencies(
             .execute()
         )
 
-
     return code_to_id
 
 
-
 # ---------------------------------------------------------
-# Questions
+# Question Bank
 # ---------------------------------------------------------
 
 async def upsert_questions(
     db: AsyncClient,
     payload: QuestionBankImport,
-    competency_ids: Dict[str, int],
+    competency_ids: Dict[str, str],
 ):
+    """
+    Upsert questions into question_bank using source_ref.
+
+    Schema mapping:
+
+    QuestionImport.text            -> body
+    QuestionImport.expected_answer -> rubric
+    QuestionImport.metadata        -> payload
+    """
 
     for question in payload.questions:
 
         row = {
             "source_ref": question.source_ref,
-            "text": question.text,
+            "competency_id": competency_ids[
+                question.competency
+            ],
             "tool_type": question.tool_type,
             "difficulty": DIFFICULTY_MAP[
                 question.difficulty
             ],
-            "competency_id": competency_ids[
-                question.competency
-            ],
-            "expected_answer": question.expected_answer,
-            "metadata": question.metadata,
+            "body": question.text,
+            "rubric": question.expected_answer,
+            "payload": question.metadata,
+            "tags": [],
+            "is_active": True,
         }
 
-
-        existing = await (
-            db.table("questions")
-            .select("*")
-            .eq(
-                "source_ref",
-                question.source_ref,
+        result = await (
+            db.table("question_bank")
+            .upsert(
+                row,
+                on_conflict="source_ref",
             )
             .execute()
         )
 
-
-        if existing.data:
-
-            await (
-                db.table("questions")
-                .update(row)
-                .eq(
-                    "source_ref",
-                    question.source_ref,
-                )
-                .execute()
+        if not result.data:
+            raise Exception(
+                f"Failed to upsert question '{question.source_ref}'"
             )
-
-        else:
-
-            await (
-                db.table("questions")
-                .insert(row)
-                .execute()
-            )
-
-
 
 # ---------------------------------------------------------
 # Question Set
@@ -174,7 +170,17 @@ async def upsert_questions(
 async def upsert_question_set(
     db: AsyncClient,
     payload: QuestionBankImport,
-):
+) -> str:
+    """
+    Create or update a question set.
+
+    NOTE:
+    question_sets.name is NOT unique in the current schema,
+    so we cannot use native upsert(on_conflict="name").
+
+    Instead:
+        select -> update -> insert
+    """
 
     existing = await (
         db.table("question_sets")
@@ -186,12 +192,10 @@ async def upsert_question_set(
         .execute()
     )
 
-
     row = {
         "name": payload.question_set.name,
         "description": payload.question_set.description,
     }
-
 
     if existing.data:
 
@@ -201,8 +205,8 @@ async def upsert_question_set(
             db.table("question_sets")
             .update(row)
             .eq(
-                "name",
-                payload.question_set.name,
+                "id",
+                question_set_id,
             )
             .execute()
         )
@@ -215,27 +219,37 @@ async def upsert_question_set(
             .execute()
         )
 
+        if not result.data:
+            raise Exception(
+                "Failed to create question set."
+            )
+
         question_set_id = result.data[0]["id"]
 
+    return question_set_id
 
 
-    # recreate mappings
-    # FakeDB does not support delete(),
-    # so we avoid it and update/insert only.
+# ---------------------------------------------------------
+# Question Set Items
+# ---------------------------------------------------------
 
-    # BUGFIX: this used to unconditionally .insert() every mapping on every import, so
-    # re-importing the same set doubled (tripled, ...) the question_set_items rows instead
-    # of being a no-op. Check for an existing (question_set_id, question_id) row first — same
-    # update-or-insert pattern already used above for competencies/questions/question_sets —
-    # and update its position instead of inserting a duplicate. FakeDB still doesn't need
-    # delete() for this: existence-check + update/insert is enough to make re-import
-    # idempotent.
+async def upsert_question_set_items(
+    db: AsyncClient,
+    payload: QuestionBankImport,
+    question_set_id: str,
+):
+    """
+    Upsert mappings into question_set_items.
+
+    Composite primary key:
+        (set_id, question_id)
+    """
 
     for item in payload.question_set.items:
 
         question = await (
-            db.table("questions")
-            .select("*")
+            db.table("question_bank")
+            .select("id")
             .eq(
                 "source_ref",
                 item.source_ref,
@@ -243,46 +257,30 @@ async def upsert_question_set(
             .execute()
         )
 
-
         if not question.data:
             continue
 
-
         question_id = question.data[0]["id"]
 
-        existing_item = await (
+        row = {
+            "set_id": question_set_id,
+            "question_id": question_id,
+            "sort_order": item.order,
+        }
+
+        result = await (
             db.table("question_set_items")
-            .select("*")
-            .eq("question_set_id", question_set_id)
-            .eq("question_id", question_id)
+            .upsert(
+                row,
+                on_conflict="set_id,question_id",
+            )
             .execute()
         )
 
-        if existing_item.data:
-
-            await (
-                db.table("question_set_items")
-                .update({"position": item.order})
-                .eq("question_set_id", question_set_id)
-                .eq("question_id", question_id)
-                .execute()
+        if not result.data:
+            raise Exception(
+                f"Failed to map question '{item.source_ref}' into question set."
             )
-
-        else:
-
-            mapping = {
-                "question_set_id": question_set_id,
-                "question_id": question_id,
-                "position": item.order,
-            }
-
-            await (
-                db.table("question_set_items")
-                .insert(mapping)
-                .execute()
-            )
-
-
 
 # ---------------------------------------------------------
 # Import Orchestrator
@@ -292,12 +290,34 @@ async def import_question_bank(
     db: AsyncClient,
     payload: QuestionBankImport,
 ):
+    """
+    Import a complete Question Bank.
+
+    Order of operations:
+
+        1. Upsert competencies
+        2. Upsert question bank entries
+        3. Create/update question set
+        4. Upsert question set items
+
+    The operation is idempotent:
+    importing the same payload multiple times
+    will update existing records rather than
+    creating duplicates.
+    """
+
+    # -----------------------------------------------------
+    # Competencies
+    # -----------------------------------------------------
 
     competency_ids = await upsert_competencies(
         db,
         payload,
     )
 
+    # -----------------------------------------------------
+    # Question Bank
+    # -----------------------------------------------------
 
     await upsert_questions(
         db,
@@ -305,8 +325,21 @@ async def import_question_bank(
         competency_ids,
     )
 
+    # -----------------------------------------------------
+    # Question Set
+    # -----------------------------------------------------
 
-    await upsert_question_set(
+    question_set_id = await upsert_question_set(
         db,
         payload,
+    )
+
+    # -----------------------------------------------------
+    # Question Set Items
+    # -----------------------------------------------------
+
+    await upsert_question_set_items(
+        db,
+        payload,
+        question_set_id,
     )
