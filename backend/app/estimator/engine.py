@@ -97,30 +97,31 @@ def _confidence(
 ) -> float:
     """
     Posterior concentration confidence.
+
+    Confidence should increase as the posterior becomes
+    more concentrated around a single level.
+
+    Uniform posterior -> confidence = 0.0
+    Fully concentrated posterior -> confidence = 1.0
     """
 
-    probabilities = list(
-        posterior.values()
-    )
+    probabilities = list(posterior.values())
 
     highest = max(probabilities)
 
-    spread = (
-        sum(
-            abs(highest - p)
-            for p in probabilities
-        )
-        /
-        (len(probabilities) - 1)
-    )
+    uniform_probability = 1.0 / len(probabilities)
 
-    confidence = 1.0 - spread
+    # Maximum possible peak above uniform.
+    max_peak = 1.0 - uniform_probability
+
+    confidence = (
+        highest - uniform_probability
+    ) / max_peak
 
     return max(
         0.0,
         min(confidence, 1.0),
     )
-
 
 
 def estimate_level(

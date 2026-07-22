@@ -101,7 +101,7 @@ async def test_import_twice_creates_no_duplicates(
 
     questions = (
         await supabase_client
-        .table("questions")
+        .table("question_bank")
         .select("*")
         .execute()
     ).data
@@ -151,14 +151,14 @@ async def test_import_updates_existing_question(
 
     rows = (
         await supabase_client
-        .table("questions")
+        .table("question_bank")
         .select("*")
         .eq("source_ref", "Q001")
         .execute()
     ).data
 
     assert len(rows) == 1
-    assert rows[0]["text"] == "Updated question text"
+    assert rows[0]["body"] == "Updated question text"
 
 
 @pytest.mark.asyncio
