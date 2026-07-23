@@ -36,6 +36,7 @@ export default function AssessFlow() {
   const [question, setQuestion] = useState<any>(null);
   const [done, setDone] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [loopError, setLoopError] = useState<string | null>(null);
 
   // Step 1: resolve the share-link token into which assessment + competencies to show.
   useEffect(() => {
@@ -96,7 +97,7 @@ export default function AssessFlow() {
     try {
       await submitIntake(sessionId, ratings);
       setStep("loop");
-      await next();
+      await next(); // errors from next() itself are caught inside next(), not here
     } catch (err) {
       setIntakeError(err instanceof Error ? err.message : "Could not save your ratings.");
     } finally {
@@ -106,6 +107,7 @@ export default function AssessFlow() {
 
   async function next(toolResult?: ToolResult) {
     setIsSubmitting(true);
+    setLoopError(null);
     try {
       const r = await turn({ session_id: sessionId, tool_result: toolResult });
       if (r.complete) {
@@ -115,6 +117,12 @@ export default function AssessFlow() {
       } else {
         setQuestion(r.emit);
       }
+    } catch (err) {
+      // Without this, a failed turn (network issue, or a not-yet-implemented backend route)
+      // left the screen blank with no indication anything went wrong.
+      setLoopError(
+        err instanceof Error ? err.message : "Something went wrong while loading the next question."
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -228,6 +236,12 @@ export default function AssessFlow() {
       <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">
         Take the assessment
       </h1>
+
+      {loopError && (
+        <Card className="mb-4">
+          <p className="text-sm text-red-600">Something went wrong: {loopError}</p>
+        </Card>
+      )}
 
       {question && AnswerComponent && (
         <AnswerComponent

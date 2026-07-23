@@ -30,6 +30,12 @@ USER appuser
 
 EXPOSE 8000
 
+# Lets `docker compose ps` / `depends_on: condition: service_healthy` know when the API is
+# actually serving requests, not just "the container started". Uses python itself (already in
+# the image) rather than adding curl/wget just for this.
+HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)" || exit 1
+
 # NOTE: no --reload here — that's a dev-only flag. This is the production/deployable image;
 # for local hot-reload development, run uvicorn with --reload directly on your host instead.
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
