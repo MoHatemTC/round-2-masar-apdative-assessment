@@ -185,13 +185,12 @@ async def import_bank(
 @router.get("/question-sets/{set_id}/competencies")
 async def set_competencies(
     set_id: str,
+    db: AsyncClient = Depends(get_db),
 ):
     """
     Return UUIDs of the parent competencies
     covered by a question set.
     """
-
-    db = await get_db()
 
     items_response = (
         await db.table("question_set_items")
@@ -257,15 +256,14 @@ async def set_competencies(
 )
 async def create_assessment(
     payload: AssessmentCreate,
+    db: AsyncClient = Depends(get_db),
 ):
-
-
-    db = await get_db()
 
 
 
     competency_ids = await set_competencies(
-        str(payload.question_set_id)
+        str(payload.question_set_id),
+        db,
     )
 
 
@@ -287,7 +285,7 @@ async def create_assessment(
     }
 
     # Insert the derived assessment into the database
-    insert_response = await db.table("assessments").insert(new_assessment_data).execute()
+    insert_response = await db.table("assessments").insert(new_assessment).execute()
     
     if not insert_response.data:
         raise HTTPException(status_code=500, detail="Failed to create assessment")

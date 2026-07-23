@@ -68,7 +68,13 @@ async def turn(
     if tool_result is not None:
         req_qnum = body.get("question_number")
         state_qnum = state.get("question_number")
-        if req_qnum is not None and state_qnum is not None and req_qnum != state_qnum:
+        # question_number is mandatory for every answer submission
+        if req_qnum is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="question_number is required when submitting an answer"
+            )
+        if state_qnum is not None and req_qnum != state_qnum:
             # The client is answering a question we already graded or moved past.
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,

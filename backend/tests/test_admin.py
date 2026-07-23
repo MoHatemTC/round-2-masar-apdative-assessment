@@ -1,6 +1,12 @@
+"""
+Admin route tests.
+
+Uses FastAPI's dependency_overrides so the admin endpoints
+never contact the real Supabase instance.
+"""
 from fastapi.testclient import TestClient
 from app.main import app
-from app.routes import admin
+from app.db import get_db
 import uuid
 
 
@@ -78,49 +84,51 @@ async def override_get_db():
     return fake_db
 
 
-from app.db import get_db
-app.dependency_overrides[get_db] = override_get_db
-
-
 def test_all_admin_routes():
     """Run all admin route tests in one session."""
 
-    with TestClient(app) as client:
+    # Apply and then remove the override around the test
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestClient(app) as client:
 
-        # 1. Test GET /admin/assessments
-        get_res = client.get("/admin/assessments")
-        assert get_res.status_code == 200
+            # 1. Test GET /admin/assessments
+            get_res = client.get("/admin/assessments")
+            assert get_res.status_code == 200
 
-        # 2. Test POST /admin/assessments - failure path
-        fake_db.is_failure_test = True
+            # 2. Test POST /admin/assessments - failure path
+            fake_db.is_failure_test = True
 
-        fail_payload = {
-            "title": "Bad Assessment",
-            "question_set_id": str(uuid.uuid4()),
-            "time_limit_min": 45,
-        }
+            fail_payload = {
+                "title": "Bad Assessment",
+                "question_set_id": str(uuid.uuid4()),
+                "time_limit_min": 45,
+            }
 
-        fail_res = client.post(
-            "/admin/assessments",
-            json=fail_payload,
-        )
+            fail_res = client.post(
+                "/admin/assessments",
+                json=fail_payload,
+            )
 
-        assert fail_res.status_code == 404
+            assert fail_res.status_code == 404
 
-        # 3. Test POST /admin/assessments - success path
-        fake_db.is_failure_test = False
+            # 3. Test POST /admin/assessments - success path
+            fake_db.is_failure_test = False
 
-        success_payload = {
-            "title": "Good Assessment",
-            "question_set_id": str(uuid.uuid4()),
-            "time_limit_min": 30,
-        }
+            success_payload = {
+                "title": "Good Assessment",
+                "question_set_id": str(uuid.uuid4()),
+                "time_limit_min": 30,
+            }
 
-        success_res = client.post(
-            "/admin/assessments",
-            json=success_payload,
-        )
+            success_res = client.post(
+                "/admin/assessments",
+                json=success_payload,
+            )
 
-        assert success_res.status_code == 200
-        assert fake_db.inserted["title"] == "Good Assessment"
-        assert TRACK_ID in success_res.json()["competency_ids"]
+            assert success_res.status_code == 200
+            assert fake_db.inserted["title"] == "Good Assessment"
+            assert TRACK_ID in success_res.json()["competency_ids"]
+    finally:
+        # Clean up so other tests are not affected
+        app.dependency_overrides.pop(get_db, None)

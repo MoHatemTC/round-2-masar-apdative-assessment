@@ -2,14 +2,13 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import Card from "@/components/ui/Card";
 import Table from "@/components/ui/Table";
 import Button from "@/components/ui/Button";
 import { getAssessments, type Assessment } from "@/lib/api";
 
 export default function AssessmentsPage() {
-  const router = useRouter();
+
   const [assessments, setAssessments] = useState<Assessment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -54,19 +53,13 @@ export default function AssessmentsPage() {
     );
   }
 
-  const tableHeaders = ["Title", "Time Limit (min)", "Question Set ID", "Actions"];
+  const tableHeaders = ["Title", "Time Limit (min)", "Question Set ID", "ID"];
 
   const tableRows = assessments.map((a) => [
     a.title,
     a.time_limit_min ?? "—",
     a.question_set_id,
-    <Button
-      key={a.id}
-      variant="secondary"
-      onClick={() => router.push(`/admin/assessments/${a.id}/invitations`)}
-    >
-      View Invitations
-    </Button>,
+    <span key={a.id} className="text-xs text-gray-400 font-mono">{a.id.slice(0, 8)}…</span>,
   ]);
 
   return (

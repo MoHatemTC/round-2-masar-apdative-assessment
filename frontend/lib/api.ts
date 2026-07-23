@@ -131,6 +131,8 @@ export async function createAssessment(payload: AssessmentCreate): Promise<Asses
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
 // ---- Admin Question Bank Import API ----
 // Matches FastAPI:
 // POST /admin/import
