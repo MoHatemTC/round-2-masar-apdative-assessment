@@ -1,5 +1,4 @@
 "use client";
-
 import Link from "next/link";
 import ThemeToggle from "@/components/ThemeToggle";
 
@@ -26,6 +25,9 @@ export default function AdminNav() {
         </Link>
         <Link href="/admin/questions" className={linkClasses}>
           Questions
+        </Link>
+        <Link href="/admin/import" className={linkClasses}>
+          Import Bank
         </Link>
       </div>
       <ThemeToggle />

@@ -110,3 +110,53 @@ export async function importBank(
     }),
   });
 }
+// ---- Admin Question Bank Import API ----
+// Matches FastAPI:
+// POST /admin/import
+//
+// Body:
+// {
+//   competencies: [],
+//   questions: [],
+//   question_set: {
+//      name,
+//      description,
+//      items
+//   }
+// }
+//
+// Response:
+// {
+//   success,
+//   competencies_imported,
+//   questions_imported,
+//   question_set_items_imported,
+//   errors
+// }
+
+
+export interface ImportValidationError {
+  row: number;
+  field: string;
+  message: string;
+}
+
+export interface AdminImportSummary {
+  success: boolean;
+  competencies_imported: number;
+  questions_imported: number;
+  question_set_items_imported: number;
+  errors: ImportValidationError[];
+}
+
+
+export async function adminImportBank(
+  payload: unknown
+): Promise<AdminImportSummary> {
+
+  return apiRequest("/admin/import", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+}
