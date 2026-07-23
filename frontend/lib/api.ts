@@ -1,9 +1,4 @@
-// lib/api.ts
-// Typed client wrapping fetch calls to the FastAPI backend.
-
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-
-// ---- Shared types ----
 
 export interface GradeResult {
   score: number | null;
@@ -30,7 +25,26 @@ export type ToolResult =
   | { insights_text: string }
   | { skipped: true };
 
-// ---- Core request helper ----
+export interface Assessment {
+  id: string;
+  title: string;
+  question_set_id: string;
+  competency_ids: string[];
+  time_limit_min: number | null;
+}
+
+export interface AssessmentCreate {
+  title: string;
+  question_set_id: string;
+  time_limit_min: number;
+}
+
+export interface Invitation {
+  id: string;
+  candidate_email: string;
+  status: "taken" | "in_progress" | "not_taken";
+  invited_at: string;
+}
 
 async function apiRequest<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -45,8 +59,6 @@ async function apiRequest<T>(path: string, options?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-// ---- Session lifecycle ----
-
 export async function startSession(): Promise<{ session_id: string }> {
   return apiRequest("/session/start", { method: "POST" });
 }
@@ -58,7 +70,6 @@ export async function submitIntake(sessionId: string, ratings: Record<string, un
   });
 }
 
-// NOTE: confirmed real path is /chat/turn, not /session/turn.
 export async function turn(params: {
   session_id: string;
   tool_result?: ToolResult;
@@ -69,18 +80,10 @@ export async function turn(params: {
   });
 }
 
-// ---- Report ----
-// NOTE: only an admin-facing report route was found (/admin/sessions/{id}/report).
-// No candidate-facing /report/{id} route exists yet — this may need to change once
-// that route is built, or the admin route may be the one to use here too.
 export async function getReport(sessionId: string): Promise<Record<string, unknown>> {
   return apiRequest(`/admin/sessions/${sessionId}/report`);
 }
 
-// NOTE: no dedicated /answer route was found. Answer submission may happen
-// entirely through turn() (tool_result gets graded server-side as part of
-// /chat/turn), in which case this function may be unnecessary — confirm
-// with whoever owns chat.py / candidate_intake.py before relying on this.
 export async function submitAnswer(params: {
   session_id: string;
   question_id: string;
@@ -110,6 +113,26 @@ export async function importBank(
     }),
   });
 }
+
+export async function getAssessments(): Promise<Assessment[]> {
+  return apiRequest<Assessment[]>("/admin/assessments");
+}
+
+export async function getInvitations(assessmentId: string): Promise<Invitation[]> {
+  return apiRequest<Invitation[]>(`/admin/assessments/${assessmentId}/invitations`);
+}
+
+export async function getCompetencies(setId: string): Promise<string[]> {
+  return apiRequest<string[]>(`/admin/question-sets/${setId}/competencies`);
+}
+
+export async function createAssessment(payload: AssessmentCreate): Promise<Assessment> {
+  return apiRequest<Assessment>("/admin/assessments", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 // ---- Admin Question Bank Import API ----
 // Matches FastAPI:
 // POST /admin/import
