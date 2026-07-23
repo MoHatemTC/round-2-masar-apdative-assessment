@@ -16,6 +16,7 @@ async def select_competency_question(
     sub_ids: List[str],
     current_estimate: float = 3.0,
     tool_type_counts: Dict[str, int] = None,
+    question_set_id: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Selects the next competency question using adaptive difficulty and
@@ -56,11 +57,19 @@ async def select_competency_question(
         tool_type_counts = {}
 
     # Retrieve questions for the requested competency
-    query = (
-        supabase.table("question_bank")
-        .select("*")
-        .eq("competency", competency)
-    )
+    if question_set_id:
+        query = (
+            supabase.table("question_bank")
+            .select("*, question_set_items!inner(set_id)")
+            .eq("competency_id", competency)
+            .eq("question_set_items.set_id", question_set_id)
+        )
+    else:
+        query = (
+            supabase.table("question_bank")
+            .select("*")
+            .eq("competency_id", competency)
+        )
 
     response = await query.execute()
 

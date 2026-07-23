@@ -144,7 +144,8 @@ async def pick_question(db, session: dict, state: dict) -> dict:
         competency=cid,
         sub_ids=pc["used_ids"],
         current_estimate=target_difficulty,
-        tool_type_counts=pc.get("asked_types", {})
+        tool_type_counts=pc.get("asked_types", {}),
+        question_set_id=state.get("question_set_id")
     )
     
     # 4. Bank exhaustion handling
@@ -182,11 +183,12 @@ async def grade(db, session: dict, state: dict, tool_result: dict) -> None:
         "session_id": session["id"],
         "question_number": state.get("question_number"),
         "question_id": q.get("id"),
-        "competency_id": q.get("competency"),
-        "tool_result": tool_result,
+        "question_body": q.get("body"),
+        "competency_id": q.get("competency_id"),
+        "tool_type": q.get("tool_type"),
         "score": result.get("score"),
         "rationale": result.get("rationale"),
-        "flagged": result.get("flagged", False)
+        "answer_text": str(tool_result) if isinstance(tool_result, dict) else str(tool_result)
     }
     # Make grading idempotent: if a retry hits this, it safely overwrites the same score
     await db.table("answers").upsert(answer_row, on_conflict="session_id,question_number").execute()
@@ -194,7 +196,7 @@ async def grade(db, session: dict, state: dict, tool_result: dict) -> None:
     state["_grading"] = result
     
     # Update tracking for used questions and asked tool types[cite: 2]
-    cid = q.get("competency")
+    cid = q.get("competency_id")
     pc = state["per_competency"][cid]
     pc["used_ids"].append(str(q.get("id")))
     pc["questions_asked"] += 1
@@ -213,7 +215,7 @@ async def estimate(db, session: dict, state: dict) -> None:
     if grading.get("flagged", False) or grading.get("score") is None:
         return
         
-    cid = q.get("competency")
+    cid = q.get("competency_id")
     pc = state["per_competency"][cid]
     
     # 1. Map difficulty to the 1-5 scale[cite: 1]
@@ -248,7 +250,7 @@ async def check_convergence(db, session: dict, state: dict) -> None:
     if not q:
         return
         
-    cid = q.get("competency")
+    cid = q.get("competency_id")
     pc = state["per_competency"][cid]
     
     reason = None

@@ -63,6 +63,18 @@ async def turn(
         raise HTTPException(status_code=400, detail="Maximum session turns exceeded.")
     state["turn_number"] = turn_count
     
+    # Idempotency / Stale submission guard
+    tool_result = body.get("tool_result")
+    if tool_result is not None:
+        req_qnum = body.get("question_number")
+        state_qnum = state.get("question_number")
+        if req_qnum is not None and state_qnum is not None and req_qnum != state_qnum:
+            # The client is answering a question we already graded or moved past.
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Stale submission or duplicate request"
+            )
+    
     try:
         # 2. Execute the adaptive loop logic, passing the current state and any user tool_result
         new_state = await adaptive_loop.run_turn(

@@ -62,7 +62,7 @@ async def test_convergence_confidence_trigger(mock_db, mock_session):
     as converged and clears the current question to move forward.
     """
     state = {
-        "current_question": {"competency": "comp_1"},
+        "current_question": {"competency_id": "comp_1"},
         "per_competency": {
             "comp_1": {
                 "confidence": 0.92, # Above CONFIDENCE_TARGET
