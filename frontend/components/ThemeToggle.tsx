@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useState } from "react";
@@ -27,9 +28,10 @@ export default function ThemeToggle() {
       type="button"
       onClick={toggleTheme}
       aria-label="Toggle theme"
-      className="rounded-md border border-gray-300 dark:border-neutral-700 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-neutral-800 transition-colors"
+      className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground/80 shadow-sm transition-all duration-150 hover:bg-subtle hover:text-foreground hover:border-[color:var(--accent-strong)]/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background active:translate-y-px"
     >
-      {isDark ? "☀️ Light" : "🌙 Dark"}
+      <span aria-hidden="true">{isDark ? "☀️" : "🌙"}</span>
+      <span>{isDark ? "Light" : "Dark"}</span>
     </button>
   );
 }
