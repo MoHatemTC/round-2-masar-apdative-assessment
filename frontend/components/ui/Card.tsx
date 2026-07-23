@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { ReactNode } from "react";
@@ -10,7 +11,11 @@ interface CardProps {
 export default function Card({ children, className = "" }: CardProps) {
   return (
     <div
-      className={`rounded-lg border border-gray-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4 sm:p-6 ${className}`}
+      className={
+        "rounded-xl border border-border bg-card text-card-foreground " +
+        "p-4 sm:p-6 shadow-sm hover:shadow-md transition-shadow duration-200 " +
+        className
+      }
     >
       {children}
     </div>
