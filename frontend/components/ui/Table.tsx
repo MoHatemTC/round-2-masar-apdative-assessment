@@ -1,3 +1,4 @@
+
 "use client";
 
 interface TableProps {
@@ -7,14 +8,18 @@ interface TableProps {
 
 export default function Table({ headers, rows }: TableProps) {
   const safeRows = rows ?? [];
+  const safeHeaders = headers ?? [];
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm text-left">
-        <thead>
-          <tr className="border-b border-gray-200 dark:border-neutral-700">
-            {(headers ?? []).map((header, i) => (
-              <th key={i} className="px-3 py-2 font-medium text-gray-700 dark:text-gray-300">
+    <div className="overflow-x-auto rounded-lg border border-border bg-card">
+      <table className="w-full text-sm text-left border-collapse">
+        <thead className="bg-subtle/60">
+          <tr className="border-b border-border">
+            {safeHeaders.map((header, i) => (
+              <th
+                key={i}
+                className="px-4 py-2.5 font-semibold text-xs uppercase tracking-wider text-muted-foreground"
+              >
                 {header}
               </th>
             ))}
@@ -23,15 +28,21 @@ export default function Table({ headers, rows }: TableProps) {
         <tbody>
           {safeRows.length === 0 ? (
             <tr>
-              <td colSpan={headers?.length ?? 1} className="px-3 py-4 text-center text-gray-400">
+              <td
+                colSpan={safeHeaders.length || 1}
+                className="px-4 py-8 text-center text-muted-foreground italic"
+              >
                 No data
               </td>
             </tr>
           ) : (
             safeRows.map((row, i) => (
-              <tr key={i} className="border-b border-gray-100 dark:border-neutral-800">
+              <tr
+                key={i}
+                className="border-b border-border/60 last:border-b-0 transition-colors hover:bg-subtle/70"
+              >
                 {row.map((cell, j) => (
-                  <td key={j} className="px-3 py-2 text-gray-900 dark:text-gray-100">
+                  <td key={j} className="px-4 py-2.5 text-foreground">
                     {cell}
                   </td>
                 ))}
