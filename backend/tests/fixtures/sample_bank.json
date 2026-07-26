@@ -1,0 +1,109 @@
+{
+  "competencies": [
+    {
+      "code": "BACKEND",
+      "name": "Backend Development"
+    },
+    {
+      "code": "PYTHON",
+      "name": "Python",
+      "parent_code": "BACKEND"
+    },
+    {
+      "code": "FASTAPI",
+      "name": "FastAPI",
+      "parent_code": "BACKEND"
+    },
+    {
+      "code": "DATABASE",
+      "name": "Databases",
+      "parent_code": "BACKEND"
+    }
+  ],
+  "questions": [
+    {
+      "source_ref": "Q001",
+      "competency": "PYTHON",
+      "text": "Explain Python decorators and give an example.",
+      "difficulty": "medium",
+      "tool_type": "text",
+      "expected_answer": "Functions that wrap other functions.",
+      "metadata": {}
+    },
+    {
+      "source_ref": "Q002",
+      "competency": "FASTAPI",
+      "text": "What is Dependency Injection in FastAPI?",
+      "difficulty": "hard",
+      "tool_type": "coding",
+      "expected_answer": "Depends()",
+      "metadata": {}
+    },
+    {
+      "source_ref": "Q003",
+      "competency": "DATABASE",
+      "text": "Explain the difference between INNER JOIN and LEFT JOIN.",
+      "difficulty": "medium",
+      "tool_type": "text",
+      "expected_answer": "",
+      "metadata": {}
+    },
+    {
+      "source_ref": "Q004",
+      "competency": "PYTHON",
+      "text": "What are list comprehensions?",
+      "difficulty": "easy",
+      "tool_type": "mcq",
+      "expected_answer": "",
+      "metadata": {}
+    },
+    {
+      "source_ref": "Q005",
+      "competency": "FASTAPI",
+      "text": "Write a FastAPI endpoint that returns JSON.",
+      "difficulty": "hard",
+      "tool_type": "coding",
+      "expected_answer": "",
+      "metadata": {}
+    },
+    {
+      "source_ref": "Q006",
+      "competency": "DATABASE",
+      "text": "What is database normalization?",
+      "difficulty": "easy",
+      "tool_type": "text",
+      "expected_answer": "",
+      "metadata": {}
+    }
+  ],
+  "question_set": {
+    "name": "Round 2 Backend Assessment",
+    "description": "Sample assessment bank for estimator and ingestion testing.",
+    "items": [
+      {
+        "source_ref": "Q001",
+        "order": 1
+      },
+      {
+        "source_ref": "Q002",
+        "order": 2
+      },
+      {
+        "source_ref": "Q003",
+        "order": 3
+      },
+      {
+        "source_ref": "Q004",
+        "order": 4
+      },
+      {
+        "source_ref": "Q005",
+        "order": 5
+      },
+      {
+        "source_ref": "Q006",
+        "order": 6
+      }
+    ]
+  }
+}

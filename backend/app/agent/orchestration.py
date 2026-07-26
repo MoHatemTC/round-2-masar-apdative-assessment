@@ -7,6 +7,13 @@ from supabase import AsyncClient
 from app.agent.state import AgentStateModel
 from app.services.selection import select_competency_question
 
+def strip_transient_keys(state: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Helper function to remove any keys starting with '_' to ensure 
+    transient runtime data is stripped before database persistence.
+    """
+    return {k: v for k, v in state.items() if not k.startswith("_")}
+
 async def run_turn(
     agent_state: dict, 
     supabase: AsyncClient,
@@ -49,7 +56,8 @@ async def run_turn(
         # Our Pydantic model allows extra fields; we add this to verify database stripping logic later
         setattr(state, "_transient_execution_timestamp", "2026-07-19T17:23:00Z")
     
-    # Return the state as a mutable dictionary along with the question payload
-    # Note: We return the complete dictionary (with the transient key intact) because 
-    # the stripping action explicitly happens at the API route persistence border
-    return state.model_dump(), question
+    # 5. Sanitize the state by stripping transient keys before the API route persistence boundary
+    clean_state = strip_transient_keys(state.model_dump())
+    
+    # Return the sanitized state as a mutable dictionary along with the question payload
+    return clean_state, question

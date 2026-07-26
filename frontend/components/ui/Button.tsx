@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { ReactNode } from "react";
@@ -8,6 +9,7 @@ interface ButtonProps {
   onClick?: () => void;
   disabled?: boolean;
   type?: "button" | "submit";
+  className?: string;   
 }
 
 export default function Button({
@@ -16,21 +18,26 @@ export default function Button({
   onClick,
   disabled = false,
   type = "button",
+  className = "",  
 }: ButtonProps) {
   const baseClasses =
-    "px-4 py-2 rounded-md font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
+    "inline-flex items-center justify-center px-4 py-2 rounded-md text-sm font-medium " +
+    "transition-all duration-150 ease-out select-none " +
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background " +
+    "active:translate-y-px " +
+    "disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none disabled:shadow-none";
 
   const variantClasses =
     variant === "primary"
-      ? "bg-blue-600 text-white hover:bg-blue-700 dark:hover:bg-blue-500"
-      : "border border-gray-300 dark:border-neutral-700 text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-neutral-800";
+      ? "bg-primary text-primary-foreground shadow-sm hover:bg-[color:var(--primary-hover)] hover:shadow-md"
+      : "bg-card text-foreground border border-border hover:bg-subtle hover:border-[color:var(--accent-strong)]/50";
 
   return (
     <button
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className={`${baseClasses} ${variantClasses}`}
+      className={`${baseClasses} ${variantClasses} ${className}`}
     >
       {children}
     </button>

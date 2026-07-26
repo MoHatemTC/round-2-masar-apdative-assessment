@@ -1,9 +1,4 @@
-// lib/api.ts
-// Typed client wrapping fetch calls to the FastAPI backend.
-
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-
-// ---- Shared types ----
 
 export interface GradeResult {
   score: number | null;
@@ -30,25 +25,26 @@ export type ToolResult =
   | { insights_text: string }
   | { skipped: true };
 
-export interface CompetencyRef {
+export interface Assessment {
   id: string;
-  name: string;
-}
-
-export interface AssessmentInfo {
-  assessment_id: string;
   title: string;
-  competencies: CompetencyRef[];
+  question_set_id: string;
+  competency_ids: string[];
+  time_limit_min: number | null;
 }
 
-export interface CvUploadResult {
-  session_id: string;
-  filename: string;
-  characters_extracted: number;
-  message: string;
+export interface AssessmentCreate {
+  title: string;
+  question_set_id: string;
+  time_limit_min: number;
 }
 
-// ---- Core request helper ----
+export interface Invitation {
+  id: string;
+  candidate_email: string;
+  status: "taken" | "in_progress" | "not_taken";
+  invited_at: string;
+}
 
 async function apiRequest<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -126,6 +122,17 @@ export async function getReport(sessionId: string): Promise<Record<string, unkno
   return apiRequest(`/admin/sessions/${sessionId}/report`);
 }
 
+export async function submitAnswer(params: {
+  session_id: string;
+  question_id: string;
+  tool_result: ToolResult;
+}): Promise<GradeResult> {
+  return apiRequest("/answer", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
 export async function importBank(
   items: unknown[],
   setName?: string
@@ -143,4 +150,74 @@ export async function importBank(
       set_name: setName,
     }),
   });
+}
+
+export async function getAssessments(): Promise<Assessment[]> {
+  return apiRequest<Assessment[]>("/admin/assessments");
+}
+
+export async function getInvitations(assessmentId: string): Promise<Invitation[]> {
+  return apiRequest<Invitation[]>(`/admin/assessments/${assessmentId}/invitations`);
+}
+
+export async function getCompetencies(setId: string): Promise<string[]> {
+  return apiRequest<string[]>(`/admin/question-sets/${setId}/competencies`);
+}
+
+export async function createAssessment(payload: AssessmentCreate): Promise<Assessment> {
+  return apiRequest<Assessment>("/admin/assessments", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+// ---- Admin Question Bank Import API ----
+// Matches FastAPI:
+// POST /admin/import
+//
+// Body:
+// {
+//   competencies: [],
+//   questions: [],
+//   question_set: {
+//      name,
+//      description,
+//      items
+//   }
+// }
+//
+// Response:
+// {
+//   success,
+//   competencies_imported,
+//   questions_imported,
+//   question_set_items_imported,
+//   errors
+// }
+
+
+export interface ImportValidationError {
+  row: number;
+  field: string;
+  message: string;
+}
+
+export interface AdminImportSummary {
+  success: boolean;
+  competencies_imported: number;
+  questions_imported: number;
+  question_set_items_imported: number;
+  errors: ImportValidationError[];
+}
+
+
+export async function adminImportBank(
+  payload: unknown
+): Promise<AdminImportSummary> {
+
+  return apiRequest("/admin/import", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
 }
