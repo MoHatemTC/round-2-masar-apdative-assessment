@@ -12,7 +12,7 @@ import os
 import uuid as uuid_lib
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Body, File, HTTPException, UploadFile
+from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from pypdf import PdfReader
 
 from app.db import get_db
@@ -226,7 +226,7 @@ async def get_assessment_by_token(share_token: str):
 
 
 @router.post("/session/{session_id}/cv")
-async def upload_cv(session_id: str, file: UploadFile = File(...)):
+async def upload_cv(session_id: str, request: Request, file: UploadFile = File(...)):
     """Accept a candidate's CV file, extract its text, and store it in `sessions.cv_json`.
 
     Supported formats: .txt, .pdf (max 5MB). Deliberately does NOT run CV competency estimation
@@ -236,6 +236,10 @@ async def upload_cv(session_id: str, file: UploadFile = File(...)):
     re-uploads. This endpoint's job is just: get the text safely into `sessions.cv_json` and give
     the frontend something to show as upload feedback.
 
+    Auth model: like the share-token route, access is by knowing the session UUID (a capability),
+    not a separate auth check — anyone holding a session id can overwrite its cv_json. Deliberate,
+    consistent with the rest of this lane's endpoints, not an oversight.
+
     Returns `{session_id, filename, characters_extracted, message}` — enough for the intake
     screen to show "CV uploaded (1,842 characters read)" without waiting on an LLM round-trip.
     """
@@ -244,6 +248,21 @@ async def upload_cv(session_id: str, file: UploadFile = File(...)):
     session_resp = await db.table("sessions").select("id").eq("id", session_id).execute()
     if not session_resp.data:
         raise HTTPException(status_code=404, detail=f"session '{session_id}' not found.")
+
+    # Reject an obviously-oversized upload based on the client-DECLARED size, before reading
+    # anything into memory. `Content-Length` isn't always present (e.g. chunked transfer without
+    # it) — when it's missing or unparseable, fall through to the post-read check below, which
+    # still catches it, just after the body's already been buffered.
+    declared_size = request.headers.get("content-length")
+    if declared_size is not None:
+        try:
+            if int(declared_size) > MAX_CV_BYTES:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"CV file too large (declared {declared_size} bytes; max {MAX_CV_BYTES} bytes).",
+                )
+        except ValueError:
+            pass  # not a valid integer -> ignore, rely on the post-read size check instead
 
     content = await file.read()
     if not content:

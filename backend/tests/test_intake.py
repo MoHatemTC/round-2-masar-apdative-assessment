@@ -71,6 +71,21 @@ def test_upload_cv_422_when_too_large(client, fake_db):
     assert "too large" in resp.json()["detail"].lower()
 
 
+def test_upload_cv_422_early_via_content_length_before_reading_body(client, fake_db):
+    """Rejects based on the client-DECLARED Content-Length, without needing to actually send
+    megabytes of data — proves the early-rejection path runs before file.read() would otherwise
+    buffer the whole (claimed) body into memory."""
+    from app.routes.candidate_intake import MAX_CV_BYTES
+    session = fake_db.seed("sessions", {"status": "identity"})
+    resp = client.post(
+        f"/session/{session['id']}/cv",
+        files={"file": ("resume.txt", b"tiny actual body", "text/plain")},
+        headers={"content-length": str(MAX_CV_BYTES + 1_000_000)},
+    )
+    assert resp.status_code == 422
+    assert "declared" in resp.json()["detail"].lower()
+
+
 def test_upload_cv_422_when_unsupported_extension(client, fake_db):
     session = fake_db.seed("sessions", {"status": "identity"})
     resp = client.post(
