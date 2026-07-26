@@ -42,7 +42,7 @@ intern-starter/
 cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env         # fill in SUPABASE_URL, SUPABASE_KEY, LLM key, RESEND key
+cp ../.env.example .env         # fill in SUPABASE_URL, SUPABASE_KEY, LLM key, RESEND key
 # apply migrations/001_init.sql in your Supabase SQL editor
 uvicorn app.main:app --reload --port 8000
 ```
@@ -52,6 +52,17 @@ cd frontend
 npm install
 npm run dev                  # http://localhost:3000
 ```
+
+### Running everything with Docker (no local Python/Node install needed)
+```bash
+cp .env.example .env         # repo root — fill in SUPABASE_URL, SUPABASE_KEY, LLM_*, RESEND_*
+docker compose up --build
+```
+- Backend: http://localhost:8000/health
+- Frontend: http://localhost:3000
+- No Postgres container — the database is remote Supabase, reached via `SUPABASE_URL`/`SUPABASE_KEY`.
+- Rebuilding after a code change: `docker compose down && docker compose up --build` (a plain
+  `docker compose up` without `--build` reuses the old image and won't pick up new code).
 
 ## Suggested build order (each is a core deliverable)
 1. **Schema** — apply `migrations/001_init.sql`.

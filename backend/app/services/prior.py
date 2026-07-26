@@ -1,25 +1,18 @@
-"""Starting-prior computation for the adaptive engine.
+"""Starting-prior computation for the adaptive engine — intake-facing adapter.
 
-Before the adaptive loop asks a single question, each measured competency needs a starting belief
-(a 1-5 "prior") to seed its Bayesian posterior. This module is the single place that formula lives,
-so the intake routes (which compute it for display / persistence) and the adaptive loop's
-`init_session` (which uses it to seed the posterior) never drift apart.
-
-Rule, per the PRD ("Starting prior"):
-    prior = round(0.5 * cv_estimate + 0.5 * self_rating)   -- when both are known
-    prior = self_rating                                     -- when there's no CV estimate
-    prior = 3                                                -- when neither is known
-
-Week 1 scope only ever hits the last two branches (CV estimation is a separate, LLM-backed service
-owned by another lane and isn't available at intake time); the blended branch is included so this
-module is already correct once that CV estimate exists, without a second implementation appearing
-elsewhere.
+The actual blend formula (round(0.5*cv + 0.5*self), with self-only / default-3 fallbacks) lives in
+`app.services.priors_bridge.blend_intake_signals` — that's the single source of truth the core
+adaptive loop also uses to seed its Bayesian posterior. This module does NOT reimplement that
+formula; it just calls it and turns the result into a clamped 1-5 integer, which is what the
+intake endpoint wants to persist/display before the loop ever runs.
 """
 from __future__ import annotations
 
 import math
 
-DEFAULT_PRIOR = 3
+from app.services.priors_bridge import blend_intake_signals
+
+DEFAULT_PRIOR = 3  # kept for callers/tests that reference the documented default directly
 MIN_LEVEL, MAX_LEVEL = 1, 5
 
 
@@ -30,35 +23,20 @@ def _clamp(level: int) -> int:
 
 def _round_half_up(value: float) -> int:
     """Ordinary round-half-up (2.5 -> 3), not Python's round() (which rounds .5 to even, so
-    round(2.5) == 2). The PRD's blend formula reads as everyday rounding, so this keeps
-    prior computation predictable regardless of the operands' parity."""
+    round(2.5) == 2). blend_intake_signals rounds to 1 decimal place (fine for a continuous
+    posterior peak), but converting THAT down to a whole level still needs half-up rounding to
+    stay predictable regardless of parity."""
     return math.floor(value + 0.5)
 
 
 def compute_prior(self_rating: int | None, cv_estimate: int | None = None) -> int:
-    """Compute one competency's starting prior (1-5).
+    """Compute one competency's starting prior as a clamped 1-5 int.
 
-    Args:
-        self_rating: the candidate's own 1-5 rating for this competency, or None if not given.
-        cv_estimate: an LLM-derived 1-5 estimate from the candidate's CV, or None if there's no CV
-            (or no estimate for this competency yet).
-
-    Returns:
-        An int in [1, 5]:
-          - both present  -> round(0.5*cv_estimate + 0.5*self_rating), clamped
-          - self only     -> self_rating, clamped
-          - neither       -> DEFAULT_PRIOR (3)
+    Delegates the actual blend/fallback math to `priors_bridge.blend_intake_signals` (which
+    returns a float, e.g. 3.5) and rounds that half-up into a whole level.
     """
-    if self_rating is None and cv_estimate is None:
-        return DEFAULT_PRIOR
-    if cv_estimate is None:
-        return _clamp(int(self_rating))
-    if self_rating is None:
-        # Not part of the PRD formula (a self-rating is always collected at intake), but fail
-        # sensibly rather than raising if this is ever called with only a CV estimate.
-        return _clamp(int(cv_estimate))
-    blended = _round_half_up(0.5 * cv_estimate + 0.5 * self_rating)
-    return _clamp(blended)
+    blended = blend_intake_signals(self_rating, cv_estimate)
+    return _clamp(_round_half_up(blended))
 
 
 def compute_priors(self_ratings: dict[str, int], cv_estimates: dict[str, int] | None = None) -> dict[str, int]:
@@ -66,9 +44,6 @@ def compute_priors(self_ratings: dict[str, int], cv_estimates: dict[str, int] | 
 
     `cv_estimates` is optional and keyed the same way (competency_id -> 1-5 int). A competency with
     a self-rating but no matching CV estimate falls back to the self-rating alone, per the PRD rule.
-    Competencies that only appear in `cv_estimates` (no self-rating) are not included — intake
-    always collects a self-rating, so this shouldn't happen in practice, but it keeps the return
-    keyed exactly to what the candidate answered.
     """
     cv_estimates = cv_estimates or {}
     return {
