@@ -6,15 +6,42 @@ import pytest
 from app.services.grading import grade_answer
 
 
+# ---------------------------------------------------
+# Golden answers
+# ---------------------------------------------------
+
 GOLDEN = (
-    Path(__file__)
-    .parent
+    Path(__file__).parent
     / "graded_answers.json"
 )
 
 with open(GOLDEN, encoding="utf8") as f:
     CASES = json.load(f)["cases"]
 
+
+# ---------------------------------------------------
+# Question bank
+# ---------------------------------------------------
+
+QUESTION_BANK = (
+    Path(__file__).resolve().parents[3]
+    / "data"
+    / "sample_question_bank.json"
+)
+
+with open(QUESTION_BANK, encoding="utf8") as f:
+    QUESTION_BANK_DATA = json.load(f)
+
+
+QUESTION_MAP = {
+    q["source_ref"]: q
+    for q in QUESTION_BANK_DATA
+}
+
+
+# ---------------------------------------------------
+# Tests
+# ---------------------------------------------------
 
 @pytest.mark.eval
 @pytest.mark.parametrize(
@@ -25,30 +52,15 @@ with open(GOLDEN, encoding="utf8") as f:
 @pytest.mark.asyncio
 async def test_golden_answers(case):
 
-    if case["kind"] == "coding":
+    question = QUESTION_MAP[case["question_source_ref"]]
 
-        question = {
-            "body": "",
-            "payload": {
-                "language": "python",
-                "expected_approach": "",
-                "starter_code": "",
-                "test_cases": [],
-            },
-        }
+    if case["kind"] == "coding":
 
         tool_result = {
             "code": case["answer"],
         }
 
     else:
-
-        question = {
-            "body": "",
-            "payload": {
-                "rubric": [],
-            },
-        }
 
         tool_result = {
             "answer_text": case["answer"],

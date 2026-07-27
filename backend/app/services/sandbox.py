@@ -155,14 +155,12 @@ async def _execute_case(
     test_case: dict,
 ) -> dict:
 
-
     input_data = str(
         test_case.get(
             "input",
             ""
         )
     )
-
 
     expected = str(
         test_case.get(
@@ -171,15 +169,38 @@ async def _execute_case(
         )
     ).strip()
 
-
-
     try:
 
-        wrapped_code = _build_wrapper(
-            code,
-            input_data,
+        # -------------------------------------------------
+        # Detect whether this is a function-call test
+        # (golden tests) or stdin test (sandbox tests)
+        # -------------------------------------------------
+
+        is_function_call = (
+            "(" in input_data
+            and ")" in input_data
+            and "\n" not in input_data
         )
 
+        if is_function_call:
+
+            wrapped_code = _build_wrapper(
+                code=code,
+                input_data="",
+            )
+
+            wrapped_code += f"""
+
+result = {input_data}
+print(result)
+"""
+
+        else:
+
+            wrapped_code = _build_wrapper(
+                code=code,
+                input_data=input_data,
+            )
 
         execution = await asyncio.wait_for(
             asyncio.to_thread(
@@ -188,8 +209,6 @@ async def _execute_case(
             ),
             timeout=TIMEOUT_SECONDS,
         )
-
-
 
     except asyncio.TimeoutError:
 
@@ -202,8 +221,6 @@ async def _execute_case(
             "timed_out": True,
         }
 
-
-
     except Exception as exc:
 
         return {
@@ -215,68 +232,39 @@ async def _execute_case(
             "timed_out": False,
         }
 
-
-
-
     stdout = ""
     stderr = ""
-
     has_error = False
 
-
-
-    # E2B 2.9.0
     if execution.logs:
 
         if execution.logs.stdout:
-
             stdout = "".join(
                 execution.logs.stdout
             )
 
-
         if execution.logs.stderr:
-
             stderr = "".join(
                 execution.logs.stderr
             )
 
-
-
     if execution.error:
-
         has_error = True
-
-        stderr += str(
-            execution.error
-        )
-
-
+        stderr += str(execution.error)
 
     actual = stdout.strip()
-
-
 
     return {
         "passed": (
             not has_error
             and actual == expected
         ),
-
         "input": input_data,
-
         "expected": expected,
-
         "actual": actual,
-
         "stderr": stderr,
-
         "timed_out": False,
     }
-
-
-
-
 
 # ==========================================================
 # Security wrapper
