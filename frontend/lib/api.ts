@@ -25,6 +25,24 @@ export type ToolResult =
   | { insights_text: string }
   | { skipped: true };
 
+  export interface CompetencyRef {
+  id: string;
+  name: string;
+}
+
+export interface AssessmentInfo {
+  assessment_id: string;
+  title: string;
+  competencies: CompetencyRef[];
+}
+
+export interface CvUploadResult {
+  session_id: string;
+  filename: string;
+  characters_extracted: number;
+  message: string;
+}
+
 export interface Assessment {
   id: string;
   title: string;
