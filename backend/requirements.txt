@@ -8,3 +8,5 @@ resend>=2.0             # transactional email (invite + report)
 python-dotenv>=1.0
 pytest>=9.1.0
 pytest-asyncio>=1.4.0
+pypdf>=6.0
+python-multipart>=0.0.9

@@ -7,13 +7,13 @@ Admin API:
 """
 
 from __future__ import annotations
-
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Body, HTTPException, Depends
 from pydantic import BaseModel
 from uuid import UUID
 
 
 from app.db import get_db
+from supabase import AsyncClient
 
 from app.ingestion.schemas import (
     QuestionBankImport,
@@ -185,13 +185,12 @@ async def import_bank(
 @router.get("/question-sets/{set_id}/competencies")
 async def set_competencies(
     set_id: str,
+    db: AsyncClient = Depends(get_db),
 ):
     """
     Return UUIDs of the parent competencies
     covered by a question set.
     """
-
-    db = await get_db()
 
     items_response = (
         await db.table("question_set_items")
@@ -257,15 +256,14 @@ async def set_competencies(
 )
 async def create_assessment(
     payload: AssessmentCreate,
+    db: AsyncClient = Depends(get_db),
 ):
-
-
-    db = await get_db()
 
 
 
     competency_ids = await set_competencies(
-        str(payload.question_set_id)
+        str(payload.question_set_id),
+        db,
     )
 
 
@@ -286,81 +284,58 @@ async def create_assessment(
 
     }
 
+    # Insert the derived assessment into the database
+    insert_response = await db.table("assessments").insert(new_assessment).execute()
+    
+    if not insert_response.data:
+        raise HTTPException(status_code=500, detail="Failed to create assessment")
 
-
-    result = (
-
-        await db.table(
-            "assessments"
-        )
-        .insert(
-            new_assessment
-        )
-        .execute()
-
-    )
-
-
-
-    if not result.data:
-
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to create assessment",
-        )
-
-
-
-    return result.data[0]
-
-
-
-# =========================================================
-# List Assessments
-# =========================================================
-
-
-@router.get(
-    "/assessments",
-    response_model=list[AssessmentResponse],
-)
-async def list_assessments():
-
-    db = await get_db()
-
-
-    response = (
-
-        await db.table(
-            "assessments"
-        )
-        .select("*")
-        .execute()
-
-    )
-
-
+    return insert_response.data[0]
+    
+@router.get("/assessments", response_model=list[AssessmentResponse])
+async def list_assessments(db: AsyncClient = Depends(get_db)):
+    """
+    Queries the database for all created assessments
+    and returns them to the admin dashboard.
+    """
+    response = await db.table("assessments").select("*").execute()
     return response.data
 
 
-
-
-# =========================================================
-# Reports
-# =========================================================
-
-
-@router.get(
-    "/sessions/{session_id}/report"
-)
-async def get_report(
-    session_id: str,
-):
-
-    """
-    TODO:
-    - fetch final_reports
-    - fetch session_competency_results
-    """
-
+@router.get("/sessions/{session_id}/report")
+async def get_report(session_id: str):
+    """Return the final_reports row + per-competency results for the admin review page. TODO."""
     raise NotImplementedError
+
+@router.get("/assessments/{assessment_id}/invitations")
+async def list_invitations(assessment_id: UUID, db: AsyncClient = Depends(get_db)):
+    """Lists invitations and cross-references session status for each candidate."""
+    # Fetch all invitations for the given assessment
+    invitations_response = await db.table("invitations").select("*").eq("assessment_id", str(assessment_id)).execute()
+    invitations = invitations_response.data or []
+
+    # Fetch all session statuses for the given assessment
+    sessions_response = await db.table("sessions").select("candidate_email, status").eq("assessment_id", str(assessment_id)).execute()
+    sessions_map = {s["candidate_email"]: s["status"] for s in sessions_response.data} if sessions_response.data else {}
+
+    results = []
+    # Cross-reference the candidate emails to determine the actual status
+    for inv in invitations:
+        email = inv.get("candidate_email")
+        session_status = sessions_map.get(email)
+        
+        if session_status == "completed":
+            status_label = "taken"
+        elif session_status:
+            status_label = "in_progress"
+        else:
+            status_label = "not_taken"
+            
+        results.append({
+            "id": inv.get("id"),
+            "candidate_email": email,
+            "status": status_label,
+            "invited_at": inv.get("created_at")
+        })
+
+    return results

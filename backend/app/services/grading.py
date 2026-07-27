@@ -5,6 +5,7 @@ Build MCQ first (deterministic, no LLM), then rubric grading, then coding.
 from __future__ import annotations
 import re
 from app.services.llm import call_llm
+from app.services.sandbox import run_code
 
 async def grade_answer(tool_type: str, question: dict, tool_result: dict, session_id: str | None = None) -> dict:
     """Return {'score': float 0..5, 'rationale': str}. `question` has body + full payload
@@ -25,11 +26,113 @@ async def grade_answer(tool_type: str, question: dict, tool_result: dict, sessio
 
     if tool_type == "coding":
 
-        # TODO: run tool_result['code'] against payload['test_cases'] in a SANDBOX (resource-bounded,
-        #       never on the app host); tests_score = 5 * (passed / total). Then add an LLM judge on
-        #       approach/quality for partial credit; blend (e.g. 0.7*tests + 0.3*judge). Log to ai_logs.
+        language = payload.get("language", "python")
+        starter_code = payload.get("starter_code", "")
+        expected_approach = payload.get("expected_approach", "")
+        test_cases = payload.get("test_cases", [])
 
-        raise NotImplementedError
+        submitted_code = tool_result.get("code", "")
+
+        # Empty submission
+        if not submitted_code.strip():
+            return {
+                "score": 0.0,
+                "rationale": "No code submitted.",
+                "flagged": False,
+            }
+
+        # Candidate never changed starter code
+        if starter_code and submitted_code.strip() == starter_code.strip():
+            return {
+                "score": 1.0,
+                "rationale": "Starter code was submitted without modification.",
+                "flagged": False,
+            }
+
+        sandbox = await run_code(
+            language=language,
+            code=submitted_code,
+            test_cases=test_cases,
+        )
+
+        # Sandbox provider unavailable
+        if sandbox["provider_failed"]:
+            return {
+                "score": None,
+                "rationale": "Sandbox provider unavailable. Submission flagged for manual review.",
+                "flagged": True,
+            }
+
+        # Infinite loop / timeout
+        if sandbox["timed_out"]:
+            return {
+                "score": 0.0,
+                "rationale": "Execution timed out.",
+                "flagged": True,
+            }
+
+        pass_rate = sandbox["pass_rate"]
+        tests_score = pass_rate * 5.0
+
+        prompt = f"""
+Question:
+{question.get("body","")}
+
+Expected approach:
+{expected_approach}
+
+Candidate code:
+
+{submitted_code}
+
+Evaluate ONLY the quality of the algorithm and implementation.
+
+Return EXACTLY:
+
+SCORE: <0-5>
+RATIONALE: <one sentence>
+"""
+
+        llm = await call_llm(
+            prompt,
+            kind="grade",
+            session_id=session_id,
+        )
+
+        flagged = False
+
+        if llm["success"]:
+            parsed = _parse_llm_grade(llm["text"])
+            judge_score = parsed["score"] or 0.0
+            rationale = parsed["rationale"]
+        else:
+            judge_score = tests_score
+            rationale = "LLM judge unavailable. Score based on test cases only."
+            flagged = True
+
+        final_score = round((tests_score + judge_score) / 2.0, 2)
+        final_score = max(0.0, min(5.0, final_score))
+
+        if sandbox["stderr"]:
+            rationale += f"\nRuntime output: {sandbox['stderr']}"
+
+        failed_cases = [
+            str(i + 1)
+            for i, r in enumerate(sandbox["results"])
+            if not r.get("passed")
+        ]
+
+        if failed_cases:
+            rationale += (
+                "\nFailed test cases: "
+                + ", ".join(failed_cases)
+            )
+
+        return {
+            "score": final_score,
+            "rationale": rationale,
+            "flagged": flagged,
+        }
 
     # voice / visualization / open-ended → rubric grading
     rubric = (
@@ -83,16 +186,4 @@ def _parse_llm_grade(text: str | None) -> dict:
 
     return {"score": score, "rationale": rationale, "flagged": False} 
 
-def estimate_level(posterior: list[float], score: float, difficulty: int) -> dict:
-    """DETERMINISTIC Bayesian update — NO LLM call. Given the running `posterior` over levels {1..5},
-    the latest answer `score` (0–5) and the question `difficulty` (a 1..5 level — map easy/medium/hard
-    through schemas.question_types.level_of before calling), return the new belief:
-        {'posterior': [p1..p5], 'level': argmax, 'confidence': 1 - normalized_spread}
-    TODO:
-      1. likelihood[L] = P(observing this score | true level == L, difficulty) — a high score on a HARD
-         question makes high L likely; a low score on an EASY question makes low L likely.
-      2. posterior'[L] = posterior[L] * likelihood[L]; renormalize so it sums to 1.
-      3. level = argmax(posterior')  (1..5);  confidence = 1 - normalized_spread(posterior').
-    The self-rating/CV enter only through the INITIAL posterior (the prior), not here.
-    The caller (adaptive_loop.estimate) clamps confidence to the per-question ceiling."""
-    raise NotImplementedError
+

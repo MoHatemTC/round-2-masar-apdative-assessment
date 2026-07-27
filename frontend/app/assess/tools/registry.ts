@@ -6,7 +6,7 @@ import type { ComponentType } from "react";
 import Mcq, { type McqProps } from "./Mcq";
 import OpenEndedText, { type OpenEndedTextProps } from "./OpenEndedText";
 import DataAnalysis, { type DataAnalysisProps } from "./DataAnalysis";
-
+import MonacoEditor from "./MonacoEditor";
 // A loose common shape every answer component shares, so the registry can
 // treat them uniformly even though each has slightly different props.
 export interface AnswerComponentProps {
@@ -23,6 +23,8 @@ export const answerComponentRegistry: Record<string, ComponentType<any>> = {
   mcq: Mcq,
   voice: OpenEndedText,
   visualization: DataAnalysis,
+  coding: MonacoEditor,
+
 };
 
 export function getAnswerComponent(toolType: string): ComponentType<any> | null {

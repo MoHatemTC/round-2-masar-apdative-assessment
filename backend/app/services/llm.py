@@ -9,7 +9,11 @@ from __future__ import annotations
 import os
 import asyncio
 import logging
+
+from dotenv import load_dotenv
 from openai import AsyncOpenAI, APIError, APITimeoutError
+
+load_dotenv()
 
 from app.db import get_db
 
