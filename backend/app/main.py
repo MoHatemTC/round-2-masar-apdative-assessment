@@ -3,7 +3,7 @@
 Run:
     uvicorn app.main:app --reload
 """
-
+import os
 import importlib
 import logging
 
@@ -63,7 +63,9 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 app.include_router(admin.router)
 app.include_router(candidate_intake.router)
 app.include_router(chat.router)
-app.include_router(sandbox.router)
+#app.include_router(sandbox.router)
+if os.getenv("ENABLE_SANDBOX_ROUTE", "false").lower() == "true":
+    app.include_router(sandbox.router)
 # ---------------------------------------------------------
 # Question Bank API
 # ---------------------------------------------------------
