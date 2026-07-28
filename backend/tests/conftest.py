@@ -166,6 +166,7 @@ class FakeQuery:
     # -----------------------------------------------------
 
     def _rows(self) -> list[dict]:
+        return self._tables.setdefault(self._table_name, [])
 
     def _matches(self, row: dict) -> bool:
         def one(field, value):
