@@ -42,12 +42,22 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     problem. This guarantees every unhandled error still gets a clean JSON body and CORS headers,
     so the frontend sees the actual failure instead of a misleading CORS message.
     """
-    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
+    logger.exception(
+    "Unhandled exception on %s %s",
+    request.method,
+    request.url.path,
+)
+
     return JSONResponse(
-        status_code=500,
-        content={"detail": f"{type(exc).__name__}: {exc}"},
-        headers={"Access-Control-Allow-Origin": "http://localhost:3000"},
-    )
+    status_code=500,
+    content={
+        "detail": "Internal server error."
+    },
+    headers={
+        "Access-Control-Allow-Origin":
+        "http://localhost:3000"
+    },
+)
 
 
 app.include_router(admin.router)

@@ -18,7 +18,7 @@ async def grade_answer(tool_type: str, question: dict, tool_result: dict, sessio
 
     if tool_result.get("skipped"):
         return {"score": 0.0, "rationale": "Skipped by the candidate.", "flagged": False}
-    
+
     if tool_type == "mcq":
         selected = tool_result.get("selected_id")
         correct = (payload.get("answer_key") or {}).get("correct_id")
@@ -84,12 +84,11 @@ async def grade_answer(tool_type: str, question: dict, tool_result: dict, sessio
             code=request.code,
             test_cases=request.test_cases,
         )
-        
         print("\n" + "=" * 80)
         print("SANDBOX RESULT")
         print(sandbox)
         print("=" * 80 + "\n")
-        
+
         # Sandbox provider unavailable
         if sandbox["provider_failed"]:
             return {
