@@ -25,6 +25,24 @@ export type ToolResult =
   | { insights_text: string }
   | { skipped: true };
 
+  export interface CompetencyRef {
+  id: string;
+  name: string;
+}
+
+export interface AssessmentInfo {
+  assessment_id: string;
+  title: string;
+  competencies: CompetencyRef[];
+}
+
+export interface CvUploadResult {
+  session_id: string;
+  filename: string;
+  characters_extracted: number;
+  message: string;
+}
+
 export interface Assessment {
   id: string;
   title: string;
@@ -45,6 +63,20 @@ export interface Invitation {
   status: "taken" | "in_progress" | "not_taken";
   invited_at: string;
 }
+export interface SandboxRunResult {
+  provider_failed: boolean;
+  timed_out: boolean;
+  pass_rate: number;
+  stderr: string;
+  results: {
+    passed: boolean;
+    input: string;
+    expected: string;
+    actual: string;
+    stderr: string;
+  }[];
+}
+
 
 async function apiRequest<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -58,7 +90,16 @@ async function apiRequest<T>(path: string, options?: RequestInit): Promise<T> {
 
   return response.json() as Promise<T>;
 }
-
+export async function runSandbox(params: {
+  code: string;
+  language: string;
+  test_cases: unknown[];
+}): Promise<SandboxRunResult> {
+  return apiRequest("/sandbox/run", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
 // ---- Candidate entry flow (session start via link/token -> intake -> loop) ----
 
 // Resolves a `?token=` share link into the assessment's id, title, and the competencies the

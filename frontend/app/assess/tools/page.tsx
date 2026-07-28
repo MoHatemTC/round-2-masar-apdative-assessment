@@ -8,16 +8,29 @@ export default function ToolsPage() {
   const [submitted, setSubmitted] = useState(false);
 
   const question = {
-    id: "demo-code-question",
-    body: "Write a function that adds two numbers.",
-    payload: {
-      language: "python",
-      starter_code:
-`def add(a,b):
+  id: "demo-code-question",
+  body: "Write a function that adds two numbers.",
+  payload: {
+    language: "python",
+    starter_code: `def add(a,b):
     pass
-`
-    }
-  };
+`,
+    test_cases: [
+      {
+        input: "add(2,3)",
+        expected_output: "5",
+      },
+      {
+        input: "add(5,7)",
+        expected_output: "12",
+      },
+      {
+        input: "add(-1,1)",
+        expected_output: "0",
+      },
+    ],
+  },
+};
 
 
   const toolType = "coding";
@@ -26,10 +39,18 @@ export default function ToolsPage() {
   const Component = getAnswerComponent(toolType);
 
 
-  function handleSubmit(answer: unknown) {
-    console.log("Submitted:", answer);
-    setSubmitted(true);
-  }
+  async function handleSubmit(answer: unknown) {
+  console.log("Submitted:", answer);
+
+  setSubmitted(true);
+
+  // simulate network request
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+
+  alert("Answer submitted!");
+
+  setSubmitted(false);
+}
 
 
   if (!Component) {

@@ -11,7 +11,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.routes import admin, candidate_intake, chat
+from app.routes import admin, candidate_intake, chat, sandbox
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 app.include_router(admin.router)
 app.include_router(candidate_intake.router)
 app.include_router(chat.router)
-
+app.include_router(sandbox.router)
 # ---------------------------------------------------------
 # Question Bank API
 # ---------------------------------------------------------
