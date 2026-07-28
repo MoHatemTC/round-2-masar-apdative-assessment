@@ -42,7 +42,6 @@ load_dotenv()
 TIMEOUT_SECONDS = 10
 
 
-
 # ==========================================================
 # Public API
 # ==========================================================
@@ -64,7 +63,6 @@ async def run_code(
         "results": [],
     }
 
-
     try:
 
         api_key = os.getenv(
@@ -76,63 +74,51 @@ async def run_code(
                 "Missing E2B_API_KEY"
             )
 
-
         sandbox = Sandbox.create(
             api_key=api_key
         )
 
+        try:
+            passed_count = 0
 
-        passed_count = 0
+            for test_case in test_cases:
 
+                result = await _execute_case(
+                    sandbox=sandbox,
+                    code=code,
+                    test_case=test_case,
+                )
 
-        for test_case in test_cases:
+                response["results"].append(result)
 
-            result = await _execute_case(
-                sandbox=sandbox,
-                code=code,
-                test_case=test_case,
-            )
+                if result["passed"]:
+                    passed_count += 1
 
+                if result.get("timed_out"):
+                    response["timed_out"] = True
 
-            response["results"].append(
-                result
-            )
+            if test_cases:
+                response["pass_rate"] = round(
+                    passed_count / len(test_cases),
+                    2
+                )
 
+            stderr_list = [
+                r["stderr"]
+                for r in response["results"]
+                if r["stderr"]
+            ]
 
-            if result["passed"]:
-                passed_count += 1
+            if stderr_list:
+                response["stderr"] = "\n".join(stderr_list)
 
+            return response
 
-            if result.get("timed_out"):
-                response["timed_out"] = True
-
-
-
-        if test_cases:
-
-            response["pass_rate"] = round(
-                passed_count / len(test_cases),
-                2
-            )
-
-
-        stderr_list = [
-            r["stderr"]
-            for r in response["results"]
-            if r["stderr"]
-        ]
-
-
-        if stderr_list:
-
-            response["stderr"] = "\n".join(
-                stderr_list
-            )
-
-
-        return response
-
-
+        finally:
+            try:
+                sandbox.kill()
+            except Exception:
+                pass
 
     except Exception as exc:
 
@@ -140,9 +126,6 @@ async def run_code(
         response["stderr"] = str(exc)
 
         return response
-
-
-
 
 
 # ==========================================================

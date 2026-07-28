@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Editor from "@monaco-editor/react";
+import { runSandbox } from "@/lib/api";
 
 interface MonacoEditorProps {
   question: {
@@ -41,25 +42,23 @@ export default function MonacoEditor({
 
   async function handleRun() {
     setRunning(true);
+
     try {
-      const response = await fetch("http://localhost:8000/sandbox/run", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          language,
-          code,
-          test_cases: testCases,
-        }),
+      const result = await runSandbox({
+        language,
+        code,
+        test_cases: testCases,
       });
 
-      const result = await response.json();
       setRunResult(result);
     } catch (err) {
       console.error(err);
+
       setRunResult({
-        error: err instanceof Error ? err.message : "Sandbox execution failed.",
+        error:
+          err instanceof Error
+            ? err.message
+            : "Sandbox execution failed.",
       });
     } finally {
       setRunning(false);
