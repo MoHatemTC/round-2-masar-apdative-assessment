@@ -6,6 +6,10 @@ from __future__ import annotations
 import re
 from app.services.llm import call_llm
 from app.services.sandbox import run_code
+from app.services.sandbox_validation import (
+    SandboxRequest,
+    validate_sandbox_request,
+)
 
 async def grade_answer(tool_type: str, question: dict, tool_result: dict, session_id: str | None = None) -> dict:
     """Return {'score': float 0..5, 'rationale': str}. `question` has body + full payload
@@ -61,10 +65,24 @@ async def grade_answer(tool_type: str, question: dict, tool_result: dict, sessio
                 "flagged": False,
             }
 
+        try:
+            request = SandboxRequest(
+                code=submitted_code,
+                language=language,
+                test_cases=test_cases,
+            )
+            validate_sandbox_request(request)
+        except Exception as exc:
+            return {
+                "score": 0.0,
+                "rationale": f"Invalid sandbox request: {str(exc)}",
+                "flagged": True,
+            }
+
         sandbox = await run_code(
-            language=language,
-            code=submitted_code,
-            test_cases=test_cases,
+            language=request.language,
+            code=request.code,
+            test_cases=request.test_cases,
         )
         
         print("\n" + "=" * 80)

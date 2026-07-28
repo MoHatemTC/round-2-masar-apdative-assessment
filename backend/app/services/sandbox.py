@@ -41,6 +41,11 @@ load_dotenv()
 
 TIMEOUT_SECONDS = 10
 
+SUPPORTED_LANGUAGES = {
+    "python",
+    "python3",
+}
+
 
 # ==========================================================
 # Public API
@@ -62,6 +67,20 @@ async def run_code(
         "stderr": "",
         "results": [],
     }
+
+    normalized_language = language.lower().strip()
+
+    if normalized_language not in SUPPORTED_LANGUAGES:
+        return {
+            "provider_failed": False,
+            "timed_out": False,
+            "pass_rate": 0.0,
+            "stderr": (
+                f"Unsupported language: {language}. "
+                f"Supported languages: {', '.join(SUPPORTED_LANGUAGES)}"
+            ),
+            "results": [],
+        }
 
     try:
 
