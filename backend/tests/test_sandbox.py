@@ -14,8 +14,12 @@ Week 3 Definition of Done
 from __future__ import annotations
 
 import os
-
 import pytest
+
+pytestmark = pytest.mark.skipif(
+    not os.getenv("E2B_API_KEY"),
+    reason="Live sandbox tests require E2B_API_KEY.",
+)
 
 from app.services.sandbox import run_code
 

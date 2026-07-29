@@ -1,7 +1,20 @@
 import json
+import os
 from pathlib import Path
 
 import pytest
+
+pytestmark = pytest.mark.skipif(
+    not (
+        os.getenv("E2B_API_KEY")
+        and (
+            os.getenv("OPENAI_API_KEY")
+            or os.getenv("LITELLM_API_KEY")
+            or os.getenv("OPENAI_BASE_URL")
+        )
+    ),
+    reason="Golden evaluation tests require live sandbox and LLM credentials.",
+)
 
 from app.services.grading import grade_answer
 
