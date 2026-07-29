@@ -13,8 +13,17 @@ from app.services.llm import call_llm
 # Same answer-bearing field names the adaptive loop strips before a question reaches the browser
 # (`_public_payload` in app/agent/adaptive_loop.py). Imported rather than redefined so there is
 # exactly one list of "fields an LLM rewrite must never be allowed to touch" in the codebase.
-from app.agent.adaptive_loop import _ANSWER_KEYS
 
+_ANSWER_KEYS = {
+    "answer_key",
+    "correct_id",
+    "explanation",
+    "test_cases",
+    "expected_output",
+    "evaluation_criteria",
+    "expected_insights",
+    "rubric",
+}
 
 def _clamp_level(value) -> int | None:
     """Coerce an LLM-provided value to an int 1-5, or None if it isn't usable at all."""

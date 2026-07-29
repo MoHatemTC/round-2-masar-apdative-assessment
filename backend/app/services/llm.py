@@ -6,6 +6,7 @@ exponential backoff, a capped max_tokens, and is logged to ai_logs.
 """
 from __future__ import annotations
 
+import json
 import os
 import asyncio
 import logging
@@ -68,6 +69,59 @@ async def call_llm(prompt: str, *, kind: str, session_id: str | None = None) -> 
     await _safe_log(session_id=session_id, kind=kind, prompt=prompt, response=None)
     return {"success": False, "text": None, "error": last_error}
 
+async def generate_fallback_question(
+    competency_id: str,
+    difficulty: int,
+    session_id: str | None = None,
+) -> dict:
+    """
+    Generate a fallback open-ended question when the question bank
+    has no remaining questions for this competency.
+    """
+
+    prompt = f"""
+Generate ONE open-ended interview question.
+
+Requirements:
+- Competency: {competency_id}
+- Difficulty: {difficulty}/5
+- Tool type must be open_ended.
+- Do NOT generate any answer.
+- Return ONLY valid JSON.
+
+Format:
+
+{{
+    "body": "...",
+    "tool_type": "open_ended",
+    "difficulty": {difficulty},
+    "competency_id": "{competency_id}"
+}}
+"""
+
+    result = await call_llm(
+        prompt,
+        kind="generate",
+        session_id=session_id,
+    )
+
+    if not result["success"]:
+        raise RuntimeError(result["error"])
+
+    try:
+        return json.loads(result["text"])
+        question = json.loads(result["text"])
+
+        if question.get("tool_type") != "open_ended":
+            raise ValueError("Fallback question must be open-ended")
+
+        if not question.get("body"):
+            raise ValueError("Fallback question missing body")
+
+        return question
+        
+    except Exception:
+        raise ValueError("Invalid JSON returned from LLM")
 
 async def _safe_log(*, session_id: str | None, kind: str, prompt: str, response: str | None) -> None:
     """Wraps _log_to_ai_logs so a logging/DB failure can never crash call_llm's caller."""

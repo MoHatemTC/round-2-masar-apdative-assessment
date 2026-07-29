@@ -17,6 +17,14 @@ from __future__ import annotations
 from app.services.selection import select_competency_question
 from app.services.grading import grade_answer
 from app.services.estimation import estimate_level
+from app.services.prior import compute_prior
+from app.services.question_bank import cv_estimate_levels
+from app.services.question_bank import personalize_question
+from app.services.llm import generate_fallback_question
+from app.schemas.question_types import validate_question_payload
+import logging
+import copy
+logger = logging.getLogger(__name__)
 
 # ── Tunable convergence knobs (start here; see ARCHITECTURE.md) ──────────────
 CONFIDENCE_TARGET = 0.90
@@ -80,6 +88,23 @@ async def init_session(db, session: dict, state: dict) -> None:
     assess_res = await db.table("assessments").select("*").eq("id", assessment_id).maybe_single().execute()
     assessment = assess_res.data or {}
     comp_ids = assessment.get("competency_ids", [])
+    competency_queue = []
+
+    if comp_ids:
+        response = await (
+            db.table("competencies")
+            .select("id,name,code")
+            .in_("id", comp_ids)
+            .execute()
+        )
+
+        competency_queue = [
+            {
+                "id": c["id"],
+                "name": c.get("name") or c.get("code"),
+            }
+            for c in response.data
+        ]
 
     # 2. Read self-ratings (1–5) from intake
     intake = session.get("intake_answers", {})
@@ -92,10 +117,28 @@ async def init_session(db, session: dict, state: dict) -> None:
     state["per_competency"] = {}
     
     # Initialize Bayesian prior parameters per competency
+    cv_json = session.get("cv_json")
+    cv_levels = {}
+
+    if cv_json:
+        try:
+            cv_levels = await cv_estimate_levels(
+                cv_json,
+                competency_queue,
+                session["id"],
+            )
+        except Exception as e:
+            logger.warning(f"CV estimation failed: {e}")
+            cv_levels = {}
+    
     for cid in comp_ids:
-        self_rating = intake.get(cid, 3)
-        # 3 & 4. Mocking cv_estimate blend for now; default to self_rating[cite: 1]
-        start = self_rating
+        self_rating = intake.get(cid)
+        
+        cv_level = cv_levels.get(cid)
+        start = compute_prior(
+            self_rating=self_rating,
+            cv_estimate=cv_level,
+        )
         
         # Seed the Bayesian posterior peaked on `start` at low confidence
         posterior = [0.1] * 5
@@ -104,6 +147,7 @@ async def init_session(db, session: dict, state: dict) -> None:
         # 5. Populate state tracking dicts
         state["per_competency"][cid] = {
             "self_rating": self_rating,
+            "cv_estimate": cv_level,
             "initial_estimate": start,
             "level": start,
             "confidence": 0.0,
@@ -112,6 +156,7 @@ async def init_session(db, session: dict, state: dict) -> None:
             "questions_asked": 0,
             "used_ids": [],
             "asked_types": {},
+            "generated_questions": [],
             "converged": False
         }
 
@@ -136,7 +181,13 @@ async def pick_question(db, session: dict, state: dict) -> dict:
     pc = pc_dict[cid]
     
     # 2. Difficulty-adaptive logic: aim at the current estimate[cite: 2]
-    target_difficulty = round(pc["level"])
+    target_difficulty = max(
+        1,
+        min(
+            5,
+            round(pc["level"])
+        )
+    )
     
     # 3. Call selection service with difficulty and type counts
     q = await select_competency_question(
@@ -147,26 +198,105 @@ async def pick_question(db, session: dict, state: dict) -> dict:
         tool_type_counts=pc.get("asked_types", {}),
         question_set_id=state.get("question_set_id")
     )
+
+    cv_json = session.get("cv_json")
+    if q and cv_json:
+        try:
+            original_question = copy.deepcopy(q) if q else None
+            cv_text = (
+                cv_json.get("raw_text")
+                or cv_json.get("summary")
+                or ""
+            )
+
+            personalized = await personalize_question(
+                bank_q=q,
+                cv_context=cv_text,
+                session_id=session["id"],
+            )
+
+        # Preserve grading fields
+            q = personalized
+            errors = validate_question_payload(
+                q.get("tool_type"),
+                q.get("body"),
+                q.get("payload"),
+            )
+
+            if errors:
+                q = original_question
+
+        except Exception as e:
+            logger.warning(f"Personalization failed: {e}")
+            q=original_question
     
     # 4. Bank exhaustion handling
     if not q:
+        try:
+            q = await generate_fallback_question(
+                competency_id=cid,
+                difficulty=target_difficulty,
+            )
+            if q.get("tool_type") != "open_ended":
+                raise ValueError("Fallback must be open-ended")
+
+            errors = validate_question_payload(
+                q.get("tool_type"),
+                q.get("body"),
+                q.get("payload"),
+            )
+
+            if errors:
+                raise ValueError(f"Invalid fallback question: {errors}")
+
+            body = q.get("body").strip()
+            if not body:
+                raise ValueError("Fallback question missing body")
+
+            if body in pc["generated_questions"]:
+                raise ValueError("Repeated fallback question")
+
+            pc["generated_questions"].append(body)
+
+        except Exception as e:
+            logger.warning(f"Fallback generation failed: {e}")
+            pc["converged"] = True
+            pc["converged_reason"] = "fallback_failed"
+            state["active_index"] += 1
+
+            return await pick_question(
+              db,
+                session,
+                state,
+            )
+        '''
         pc["converged"] = True
         pc["converged_reason"] = "max_questions"
         state["active_index"] += 1
         return await pick_question(db, session, state)
-        
+        '''
     # 5. Lock in the question state for the upcoming grade cycle
     state["current_question"] = q
     q_num = state.get("question_number", 0) + 1
     state["question_number"] = q_num
     
     # 6. Emit sanitized payload to frontend
+    public_question = q.copy()
+
+    for k in _ANSWER_KEYS:
+        public_question.pop(k, None)
+
+    state["_emit"] = public_question
+    state["_emit"]["question_number"] = q_num
+  
+    '''
     state["_emit"] = {
         "question_number": q_num,
         "body": q.get("body"),
         "tool_type": q.get("tool_type"),
         "payload": _public_payload(q.get("payload"))
     }
+    '''
     return state
 
 
@@ -269,6 +399,10 @@ async def check_convergence(db, session: dict, state: dict) -> None:
     if reason:
         pc["converged"] = True
         pc["converged_reason"] = reason
+        pc["low_confidence"] = (
+            reason == "max_questions"
+            or reason == "fallback_failed"
+        )
         
         from app.services.scoring import competency_result_from_state, session_competency_result_row
         result = competency_result_from_state(cid, pc)
