@@ -228,6 +228,12 @@
     "payload": {
       "language": "python",
       "starter_code": "def dispatch(tool_name, args):\n    # route to the right tool and return its result\n    pass",
+      "public_test_cases": [
+        {
+          "input": "dispatch('add', {'a': 2, 'b': 3})",
+          "expected_output": "5"
+        }
+      ],
       "test_cases": [
         {
           "input": "dispatch('add', {'a': 2, 'b': 3})",
@@ -378,6 +384,12 @@
     "payload": {
       "language": "python",
       "starter_code": "def top_model(usage):\n    pass",
+      "public_test_cases": [
+        {
+          "input": "top_model([{'model':'a','tokens':100},{'model':'b','tokens':250},{'model':'a','tokens':200}])",
+          "expected_output": "a"
+        }
+      ],
       "test_cases": [
         {
           "input": "top_model([{'model':'a','tokens':100},{'model':'b','tokens':250},{'model':'a','tokens':200}])",
