@@ -4,8 +4,8 @@ One HTTP turn = one call to `run_turn`. The whole loop state lives in `sessions.
 and is round-tripped every turn (stateless server, resumable client). Follow docs/ARCHITECTURE.md.
 
 Flow per turn:
-  • not initialized      → init_session, then pick a question
-  • answer came in       → grade → estimate → check_convergence → pick the next question
+  • not initialized       → init_session, then pick a question
+  • answer came in        → grade → estimate → check_convergence → pick the next question
   • all competencies done → finalize
 
 Fill in every TODO. Keep the golden rules:
@@ -61,7 +61,18 @@ def _confidence_ceiling(questions_asked: int) -> float:
 
 def _public_payload(payload: dict | None) -> dict:
     """Strip answer-bearing fields before a question goes to the browser."""
-    return {k: v for k, v in (payload or {}).items() if k not in _ANSWER_KEYS}
+    payload = dict(payload or {})
+
+    if "public_test_cases" in payload:
+        payload["test_cases"] = payload["public_test_cases"]
+
+    payload.pop("public_test_cases", None)
+
+    return {
+        k: v
+        for k, v in payload.items()
+        if k not in _ANSWER_KEYS
+    }
 
 
 # ── The turn entrypoint ──────────────────────────────────────────────────────
@@ -305,10 +316,10 @@ async def grade(db, session: dict, state: dict, tool_result: dict) -> None:
     q = state.get("current_question", {})
     tool_type = q.get("tool_type")
     
-    # Grade the answer defensively using the teammate's contract[cite: 2]
+    # Grade the answer defensively using the teammate's contract
     result = await grade_answer(tool_type, q, tool_result, session["id"])
     
-    # Persist the answer with the unique resumability constraint applied in DB migration[cite: 2]
+    # Persist the answer with the unique resumability constraint applied in DB migration
     answer_row = {
         "session_id": session["id"],
         "question_number": state.get("question_number"),
@@ -325,7 +336,7 @@ async def grade(db, session: dict, state: dict, tool_result: dict) -> None:
     
     state["_grading"] = result
     
-    # Update tracking for used questions and asked tool types[cite: 2]
+    # Update tracking for used questions and asked tool types
     cid = q.get("competency_id")
     pc = state["per_competency"][cid]
     pc["used_ids"].append(str(q.get("id")))
@@ -341,14 +352,14 @@ async def estimate(db, session: dict, state: dict) -> None:
     grading = state.get("_grading", {})
     q = state.get("current_question", {})
     
-    # Defensive programming: Do not estimate if grading failed[cite: 2]
+    # Defensive programming: Do not estimate if grading failed
     if grading.get("flagged", False) or grading.get("score") is None:
         return
         
     cid = q.get("competency_id")
     pc = state["per_competency"][cid]
     
-    # 1. Map difficulty to the 1-5 scale[cite: 1]
+    # 1. Map difficulty to the 1-5 scale
     diff_raw = q.get("difficulty", "medium")
     diff_val = 3
     if isinstance(diff_raw, str):
@@ -358,14 +369,14 @@ async def estimate(db, session: dict, state: dict) -> None:
     elif isinstance(diff_raw, (int, float)):
         diff_val = round(diff_raw)
         
-    # 2. Update posterior deterministically without LLM calls[cite: 1]
+    # 2. Update posterior deterministically without LLM calls
     res = estimate_level(pc["posterior"], grading["score"], diff_val)
     
     # 3. Apply results
     pc["posterior"] = res["posterior"]
     pc["level"] = res["level"]
     
-    # 4. Cap confidence ceiling to prevent one answer from triggering an early stop[cite: 1]
+    # 4. Cap confidence ceiling to prevent one answer from triggering an early stop
     raw_conf = res.get("confidence", 0.0)
     ceiling = _confidence_ceiling(pc["questions_asked"])
     pc["confidence"] = min(raw_conf, ceiling)
@@ -385,7 +396,7 @@ async def check_convergence(db, session: dict, state: dict) -> None:
     
     reason = None
     
-    # Evaluate stopping conditions[cite: 1]
+    # Evaluate stopping conditions
     if pc["confidence"] >= CONFIDENCE_TARGET:
         reason = "confidence"
     elif pc["questions_asked"] >= MAX_QUESTIONS:
