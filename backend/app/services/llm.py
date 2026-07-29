@@ -9,24 +9,47 @@ from __future__ import annotations
 import os
 import asyncio
 import logging
+from dotenv import load_dotenv
 from openai import AsyncOpenAI, APIError, APITimeoutError
-
+load_dotenv()
 from app.db import get_db
 
 logger = logging.getLogger(__name__)
 
-_client = AsyncOpenAI(
-    base_url=os.environ["LLM_BASE_URL"],
-    api_key=os.environ["LLM_API_KEY"],
-)
-
-MODEL = os.environ.get("LLM_MODEL", "kimi-k2.5")
+_client: AsyncOpenAI | None = None
+MODEL = os.getenv("LLM_MODEL", "kimi-k2.5")
 MAX_TOKENS = 2000
 MAX_RETRIES = 3
 BASE_BACKOFF_SECONDS = 1.0
 
 # Must match the `kind` values allowed by the ai_logs table.
 VALID_KINDS = {"personalize", "grade", "cv_estimate", "stt", "generate"}
+
+
+def _get_client() -> AsyncOpenAI | None:
+    """
+    Lazily construct the OpenAI client.
+
+    This keeps module import safe even when LLM credentials are absent.
+    """
+
+    global _client
+
+    if _client is not None:
+        return _client
+
+    base_url = os.getenv("LLM_BASE_URL")
+    api_key = os.getenv("LLM_API_KEY")
+
+    if not base_url or not api_key:
+        return None
+
+    _client = AsyncOpenAI(
+        base_url=base_url,
+        api_key=api_key,
+    )
+
+    return _client
 
 
 async def call_llm(prompt: str, *, kind: str, session_id: str | None = None) -> dict:
@@ -45,11 +68,20 @@ async def call_llm(prompt: str, *, kind: str, session_id: str | None = None) -> 
     if kind not in VALID_KINDS:
         raise ValueError(f"Invalid kind {kind!r}. Must be one of {VALID_KINDS}")
 
+    client = _get_client()
+
+    if client is None:
+        return {
+            "success": False,
+            "text": None,
+            "error": "LLM is not configured.",
+        }
+
     last_error = None
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            response = await _client.chat.completions.create(
+            response = await client.chat.completions.create(
                 model=MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 max_completion_tokens=MAX_TOKENS,

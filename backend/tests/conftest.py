@@ -161,25 +161,43 @@ class FakeQuery:
         return self
 
 
-    # -----------------------------------------------------
+       # -----------------------------------------------------
     # Helpers
     # -----------------------------------------------------
 
     def _rows(self) -> list[dict]:
-        pass
+        """
+        Return the backing table, creating it if needed.
+        """
+        return self._tables.setdefault(
+            self._table_name,
+            [],
+        )
 
-    def _matches(self, row: dict) -> bool:
-        def one(field, value):
+
+    def _matches(
+        self,
+        row: dict,
+    ) -> bool:
+        """
+        Check whether a row satisfies all filters.
+        Supports both eq() and in_().
+        """
+
+        def one(field: str, value: Any) -> bool:
             if isinstance(value, set):
                 return row.get(field) in value
             return row.get(field) == value
-        return all(one(field, value) for field, value in self._filters)
+
+        return all(
+            one(field, value)
+            for field, value in self._filters
+        )
+
 
     async def execute(self) -> FakeResult:
 
         rows = self._rows()
-
-
 
         # -----------------------------
         # INSERT
@@ -198,11 +216,7 @@ class FakeQuery:
 
             rows.append(row)
 
-            return FakeResult(
-                [row]
-            )
-
-
+            return FakeResult([row])
 
         # -----------------------------
         # SELECT
@@ -218,8 +232,6 @@ class FakeQuery:
                 ]
             )
 
-
-
         # -----------------------------
         # UPDATE
         # -----------------------------
@@ -232,19 +244,12 @@ class FakeQuery:
                 if self._matches(row)
             ]
 
-
             for row in matched:
-
                 row.update(
                     self._payload or {}
                 )
 
-
-            return FakeResult(
-                matched
-            )
-
-
+            return FakeResult(matched)
 
         # -----------------------------
         # UPSERT
@@ -254,75 +259,46 @@ class FakeQuery:
 
             payload = self._payload or {}
 
-
-            conflict_keys: list[str] = []
-
+            conflict_keys = []
 
             if self._conflict:
-
                 conflict_keys = [
                     key.strip()
-                    for key
-                    in self._conflict.split(",")
+                    for key in self._conflict.split(",")
                 ]
 
-
-
             existing = None
-
 
             if conflict_keys:
 
                 existing = next(
                     (
                         row
-                        for row
-                        in rows
+                        for row in rows
                         if all(
-                            row.get(key)
-                            ==
-                            payload.get(key)
-
-                            for key
-                            in conflict_keys
+                            row.get(key) == payload.get(key)
+                            for key in conflict_keys
                         )
                     ),
                     None,
                 )
 
-
-
             if existing:
 
-                existing.update(
-                    payload
-                )
+                existing.update(payload)
 
-                return FakeResult(
-                    [existing]
-                )
+                return FakeResult([existing])
 
-
-
-            row = dict(
-                payload
-            )
-
+            row = dict(payload)
 
             row.setdefault(
                 "id",
                 str(uuid.uuid4()),
             )
 
-
             rows.append(row)
 
-
-            return FakeResult(
-                [row]
-            )
-
-
+            return FakeResult([row])
 
         return FakeResult([])
 
