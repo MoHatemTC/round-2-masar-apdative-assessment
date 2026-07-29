@@ -61,7 +61,7 @@ export default function AssessFlow() {
     setIntakeSubmitting(true);
     setIntakeError(null);
     try {
-      const { session_id } = await startSession(assessment.assessment_id);
+      const { session_id } = await startSession(assessment.assessment_id, token);
       setSessionId(session_id);
       setStep("intake");
     } catch (err) {

@@ -115,10 +115,13 @@ export async function getAssessmentByToken(token: string): Promise<AssessmentInf
   return apiRequest(`/assessments/by-token/${encodeURIComponent(token)}`);
 }
 
-export async function startSession(assessmentId: string): Promise<{ session_id: string }> {
+export async function startSession(assessmentId: string, token?: string): Promise<{ session_id: string }> {
   return apiRequest("/session/start", {
     method: "POST",
-    body: JSON.stringify({ assessment_id: assessmentId }),
+    body: JSON.stringify({ 
+      assessment_id: assessmentId,
+      token: token 
+    }),
   });
 }
 

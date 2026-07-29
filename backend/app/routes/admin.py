@@ -321,9 +321,48 @@ async def list_assessments(db: AsyncClient = Depends(get_db)):
 
 
 @router.get("/sessions/{session_id}/report")
-async def get_report(session_id: str):
-    """Return the final_reports row + per-competency results for the admin review page. TODO."""
-    raise NotImplementedError
+async def get_report(session_id: str, db: AsyncClient = Depends(get_db)):
+    session_response = await db.table("sessions").select("status").eq("id", session_id).execute()
+    
+    if not session_response.data:
+        raise HTTPException(status_code=404, detail="Session not found.")
+        
+    if session_response.data[0]["status"] != "completed":
+        raise HTTPException(
+            status_code=409, 
+            detail="Session is in progress or not taken. Report is not available yet."
+        )
+
+    report_response = await db.table("final_reports").select("*").eq("session_id", session_id).execute()
+    
+    if not report_response.data:
+        raise HTTPException(status_code=404, detail="Final report missing for completed session.")
+        
+    report = report_response.data[0]
+
+    competency_results_response = (
+        await db.table("session_competency_results")
+        .select("*")
+        .eq("session_id", session_id)
+        .execute()
+    )
+
+    answers_response = (
+        await db.table("answers")
+        .select("question_number, question_body, tool_type, score, rationale, answer_text, flagged")
+        .eq("session_id", session_id)
+        .order("question_number")
+        .execute()
+    )
+
+    return {
+        "session_id": report.get("session_id"),
+        "overall_score": report.get("overall_pct"),
+        "band": report.get("level_label"),
+        "is_low_confidence": report.get("has_low_confidence", False),
+        "competency_results": competency_results_response.data or [],
+        "answers": answers_response.data or []
+    }
 
 @router.get("/assessments/{assessment_id}/invitations")
 async def list_invitations(assessment_id: UUID, db: AsyncClient = Depends(get_db)):

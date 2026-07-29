@@ -3,7 +3,12 @@ import resend
 from supabase import AsyncClient
 import asyncio
 import logging
+from dotenv import load_dotenv
 
+# 1. Force Python to read the .env file FIRST
+load_dotenv()
+
+# 2. Now it will successfully find the key
 resend.api_key = os.environ.get("RESEND_API_KEY")
 logger = logging.getLogger(__name__)
 
