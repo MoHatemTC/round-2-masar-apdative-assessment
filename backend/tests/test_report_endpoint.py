@@ -1,16 +1,15 @@
 """Mocked integration tests for `GET /admin/sessions/{session_id}/report`.
 
-No real database or network — `app.db.get_db` is monkeypatched to return a tiny
-in-memory fake seeded with rows, so we can assert the endpoint's actual behavior:
+No real database or network. We pass a tiny in-memory fake seeded with rows
+directly into the route handler, so we can assert the endpoint's actual behavior:
 correct report + competency-results shape, low-confidence data surfacing correctly,
-per-session scoping, and 404 when no report exists yet.
+per-session scoping, answers inclusion, and 404/409 error handling.
 """
 from __future__ import annotations
 
 import pytest
 from fastapi import HTTPException
 
-from app.routes import admin as admin_module
 from app.routes.admin import get_report
 
 pytestmark = pytest.mark.asyncio
@@ -33,6 +32,9 @@ class _FakeQuery:
     def eq(self, column, value):
         self._filters[column] = value
         return self
+        
+    def order(self, *_args, **_kwargs):
+        return self
 
     async def execute(self):
         rows = self._store.get(self._table, [])
@@ -48,47 +50,43 @@ class _FakeDB:
         return _FakeQuery(self._store, name)
 
 
-def _patch_db(monkeypatch, store: dict) -> None:
-    async def _fake_get_db():
-        return _FakeDB(store)
-
-    monkeypatch.setattr(admin_module, "get_db", _fake_get_db)
-
-
 class TestGetReportEndpoint:
-    async def test_returns_report_and_competency_results(self, monkeypatch):
+    async def test_returns_report_and_competency_results_and_answers(self):
         store = {
+            "sessions": [{"id": "sess-1", "status": "completed"}],
             "final_reports": [{
                 "session_id": "sess-1",
-                "overall_pct": 70,
-                "overall_level": 4,
-                "level_label": "Advanced",
-                "has_low_confidence": True,
-                "skill_scores": {"comp-sql": {"low_confidence": True, "pct": 40}},
+                "overall_score": 75,
+                "band": "Advanced",
+                "is_low_confidence": False
             }],
             "session_competency_results": [
                 {"session_id": "sess-1", "competency_id": "comp-python", "low_confidence": False},
-                {"session_id": "sess-1", "competency_id": "comp-sql", "low_confidence": True},
+                {"session_id": "sess-1", "competency_id": "comp-sql", "low_confidence": False},
             ],
+            "answers": [
+                {"session_id": "sess-1", "question_number": 1, "score": 4},
+                {"session_id": "sess-1", "question_number": 2, "score": 5},
+            ]
         }
-        _patch_db(monkeypatch, store)
+        fake_db = _FakeDB(store)
 
-        result = await get_report("sess-1")
+        result = await get_report("sess-1", db=fake_db)
 
-        assert result["report"]["session_id"] == "sess-1"
-        assert result["report"]["overall_pct"] == 70
+        assert result["session_id"] == "sess-1"
+        assert result["overall_score"] == 75
+        assert result["band"] == "Advanced"
         assert len(result["competency_results"]) == 2
+        assert len(result["answers"]) == 2
 
-    async def test_low_confidence_data_present_in_returned_report(self, monkeypatch):
+    async def test_low_confidence_data_present_in_returned_report(self):
         store = {
+            "sessions": [{"id": "sess-1", "status": "completed"}],
             "final_reports": [{
                 "session_id": "sess-1",
-                "overall_pct": 70,
-                "has_low_confidence": True,
-                "skill_scores": {
-                    "comp-sql": {"low_confidence": True, "band_label": "Developing"},
-                    "comp-python": {"low_confidence": False, "band_label": "Expert"},
-                },
+                "overall_score": 40,
+                "band": "Developing",
+                "is_low_confidence": True
             }],
             "session_competency_results": [
                 {
@@ -98,57 +96,80 @@ class TestGetReportEndpoint:
                     "converged_reason": "max_questions",
                 },
             ],
+            "answers": []
         }
-        _patch_db(monkeypatch, store)
+        fake_db = _FakeDB(store)
 
-        result = await get_report("sess-1")
+        result = await get_report("sess-1", db=fake_db)
 
-        assert result["report"]["has_low_confidence"] is True
-        assert result["report"]["skill_scores"]["comp-sql"]["low_confidence"] is True
-        assert result["report"]["skill_scores"]["comp-python"]["low_confidence"] is False
+        assert result["is_low_confidence"] is True
         assert result["competency_results"][0]["low_confidence"] is True
         assert result["competency_results"][0]["converged_reason"] == "max_questions"
 
-    async def test_returns_404_when_report_missing(self, monkeypatch):
-        _patch_db(monkeypatch, {"final_reports": [], "session_competency_results": []})
+    async def test_returns_404_when_session_missing(self):
+        store = {"sessions": [], "final_reports": [], "session_competency_results": [], "answers": []}
+        fake_db = _FakeDB(store)
 
         with pytest.raises(HTTPException) as exc_info:
-            await get_report("nonexistent-session")
+            await get_report("nonexistent-session", db=fake_db)
 
         assert exc_info.value.status_code == 404
+        assert "Session not found" in str(exc_info.value.detail)
 
-    async def test_scopes_competency_results_to_requested_session_only(self, monkeypatch):
+    async def test_returns_409_when_session_incomplete(self):
         store = {
+            "sessions": [{"id": "sess-1", "status": "in_progress"}],
+            "final_reports": [],
+            "session_competency_results": [],
+            "answers": []
+        }
+        fake_db = _FakeDB(store)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_report("sess-1", db=fake_db)
+
+        assert exc_info.value.status_code == 409
+        assert "not available yet" in str(exc_info.value.detail)
+
+    async def test_returns_404_when_report_missing_but_session_completed(self):
+        store = {
+            "sessions": [{"id": "sess-1", "status": "completed"}],
+            "final_reports": [],
+            "session_competency_results": [],
+            "answers": []
+        }
+        fake_db = _FakeDB(store)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_report("sess-1", db=fake_db)
+
+        assert exc_info.value.status_code == 404
+        assert "Final report missing" in str(exc_info.value.detail)
+
+    async def test_scopes_data_to_requested_session_only(self):
+        store = {
+            "sessions": [
+                {"id": "sess-1", "status": "completed"},
+                {"id": "sess-2", "status": "completed"}
+            ],
             "final_reports": [
-                {"session_id": "sess-1", "overall_pct": 80, "has_low_confidence": False, "skill_scores": {}},
+                {"session_id": "sess-1", "overall_score": 80, "band": "Advanced", "is_low_confidence": False},
+                {"session_id": "sess-2", "overall_score": 90, "band": "Expert", "is_low_confidence": False},
             ],
             "session_competency_results": [
                 {"session_id": "sess-1", "competency_id": "a"},
-                {"session_id": "sess-2", "competency_id": "b"},  # different session — must not leak
+                {"session_id": "sess-2", "competency_id": "b"},  # different session
             ],
+            "answers": [
+                {"session_id": "sess-1", "question_number": 1},
+                {"session_id": "sess-2", "question_number": 1},  # different session
+            ]
         }
-        _patch_db(monkeypatch, store)
+        fake_db = _FakeDB(store)
 
-        result = await get_report("sess-1")
+        result = await get_report("sess-1", db=fake_db)
 
+        assert result["overall_score"] == 80
         assert len(result["competency_results"]) == 1
         assert result["competency_results"][0]["competency_id"] == "a"
-
-    async def test_no_low_confidence_case_reports_false(self, monkeypatch):
-        store = {
-            "final_reports": [{
-                "session_id": "sess-2",
-                "overall_pct": 90,
-                "has_low_confidence": False,
-                "skill_scores": {"a": {"low_confidence": False}},
-            }],
-            "session_competency_results": [
-                {"session_id": "sess-2", "competency_id": "a", "low_confidence": False},
-            ],
-        }
-        _patch_db(monkeypatch, store)
-
-        result = await get_report("sess-2")
-
-        assert result["report"]["has_low_confidence"] is False
-        assert all(r["low_confidence"] is False for r in result["competency_results"])
+        assert len(result["answers"]) == 1

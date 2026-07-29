@@ -10,7 +10,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Body, HTTPException, Depends
 from pydantic import BaseModel
 from uuid import UUID
-
+import os
+import uuid
+from fastapi import BackgroundTasks
+from pydantic import EmailStr
+from app.services.email import send_invitation_background
 
 from app.db import get_db
 from supabase import AsyncClient
@@ -61,6 +65,20 @@ class AssessmentResponse(BaseModel):
 
     time_limit_min: int | None = 30
 
+# =========================================================
+# Invitation Schemas
+# =========================================================
+
+class InvitationCreate(BaseModel):
+    assessment_id: UUID
+    candidate_email: EmailStr  # Automatically validates email format (returns 422 if invalid)
+
+class InvitationResponse(BaseModel):
+    id: UUID
+    assessment_id: UUID
+    candidate_email: str
+    token: str
+    status: str
 
 
 # =========================================================
@@ -310,19 +328,21 @@ async def get_report(session_id: str):
 @router.get("/assessments/{assessment_id}/invitations")
 async def list_invitations(assessment_id: UUID, db: AsyncClient = Depends(get_db)):
     """Lists invitations and cross-references session status for each candidate."""
-    # Fetch all invitations for the given assessment
     invitations_response = await db.table("invitations").select("*").eq("assessment_id", str(assessment_id)).execute()
     invitations = invitations_response.data or []
 
-    # Fetch all session statuses for the given assessment
-    sessions_response = await db.table("sessions").select("candidate_email, status").eq("assessment_id", str(assessment_id)).execute()
-    sessions_map = {s["candidate_email"]: s["status"] for s in sessions_response.data} if sessions_response.data else {}
+    # Fetch status AND id to pass to the frontend
+    sessions_response = await db.table("sessions").select("id, candidate_email, status").eq("assessment_id", str(assessment_id)).execute()
+    
+    # Map by email to quickly grab status and session_id
+    sessions_map = {s["candidate_email"]: {"status": s["status"], "session_id": s["id"]} for s in sessions_response.data} if sessions_response.data else {}
 
     results = []
-    # Cross-reference the candidate emails to determine the actual status
     for inv in invitations:
         email = inv.get("candidate_email")
-        session_status = sessions_map.get(email)
+        session_data = sessions_map.get(email, {})
+        session_status = session_data.get("status")
+        session_id = session_data.get("session_id") # Grab the ID!
         
         if session_status == "completed":
             status_label = "taken"
@@ -333,9 +353,136 @@ async def list_invitations(assessment_id: UUID, db: AsyncClient = Depends(get_db
             
         results.append({
             "id": inv.get("id"),
+            "session_id": session_id, # Frontend uses this for the drill-down link
             "candidate_email": email,
             "status": status_label,
             "invited_at": inv.get("created_at")
         })
 
     return results
+# =========================================================
+# Invitations
+# =========================================================
+
+@router.post("/invitations", response_model=InvitationResponse)
+async def create_invitation(
+    payload: InvitationCreate,
+    background_tasks: BackgroundTasks,
+    db: AsyncClient = Depends(get_db)
+):
+    """
+    Creates an invitation for a candidate to take an assessment.
+    Enforces deduplication: if an invite already exists, the same token is reused.
+    Dispatches the email asynchronously via BackgroundTasks.
+    """
+    assessment_id_str = str(payload.assessment_id)
+    email = payload.candidate_email
+
+    # 1. Deduplication: Check if invitation already exists
+    existing_response = (
+        await db.table("invitations")
+        .select("*")
+        .eq("assessment_id", assessment_id_str)
+        .eq("candidate_email", email)
+        .execute()
+    )
+
+    if existing_response.data:
+        # Reuse existing token to avoid duplicate rows
+        invitation_data = existing_response.data[0]
+        token = invitation_data["token"]
+        status = "re-invited"
+    else:
+        # Generate new token and insert into database
+        token = str(uuid.uuid4())
+        new_invitation = {
+            "assessment_id": assessment_id_str,
+            "candidate_email": email,
+            "token": token
+        }
+        
+        insert_response = await db.table("invitations").insert(new_invitation).execute()
+        if not insert_response.data:
+            raise HTTPException(status_code=500, detail="Failed to create invitation in database.")
+            
+        invitation_data = insert_response.data[0]
+        status = "invited"
+
+    # 2. Queue email dispatch in the background (Non-blocking)
+    # Falls back to localhost if FRONTEND_URL is not set in .env
+    base_url = os.environ.get("FRONTEND_URL", "http://localhost:3000") 
+    
+    background_tasks.add_task(
+        send_invitation_background,
+        db,
+        email,
+        token,
+        base_url
+    )
+
+    return {
+        "id": invitation_data["id"],
+        "assessment_id": invitation_data["assessment_id"],
+        "candidate_email": email,
+        "token": token,
+        "status": status
+    }
+
+
+# =========================================================
+# Reports
+# =========================================================
+
+@router.get("/sessions/{session_id}/report")
+async def get_report(session_id: str, db: AsyncClient = Depends(get_db)):
+    """
+    Fetches the final report and per-competency results for a given session.
+    Returns a clean 409 Conflict if the session is not yet completed.
+    """
+    
+    # 1. Validate Session Status
+    session_response = await db.table("sessions").select("status").eq("id", session_id).execute()
+    
+    if not session_response.data:
+        raise HTTPException(status_code=404, detail="Session not found.")
+        
+    if session_response.data[0]["status"] != "completed":
+        raise HTTPException(
+            status_code=409, 
+            detail="Session is in progress or not taken. Report is not available yet."
+        )
+
+    # 2. Fetch Aggregated Final Report
+    report_response = await db.table("final_reports").select("*").eq("session_id", session_id).execute()
+    
+    if not report_response.data:
+        raise HTTPException(status_code=404, detail="Final report missing for completed session.")
+        
+    report = report_response.data[0]
+
+    # 3. Fetch Granular Competency Results
+    competency_results_response = (
+        await db.table("session_competency_results")
+        .select("*")
+        .eq("session_id", session_id)
+        .execute()
+    )
+
+    # 4. Fetch the individual answers for the drill-down
+    answers_response = (
+        await db.table("answers")
+        .select("question_number, question_body, tool_type, score, rationale, answer_text, flagged")
+        .eq("session_id", session_id)
+        .order("question_number")
+        .execute()
+    )
+
+    # 5. Return Structured Data for UI
+    return {
+        "session_id": report["session_id"],
+        "overall_score": report["overall_score"],
+        "band": report["band"],
+        "is_low_confidence": report["is_low_confidence"],
+        "competency_results": competency_results_response.data or [],
+        "answers": answers_response.data or []
+    }

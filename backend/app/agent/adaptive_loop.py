@@ -14,6 +14,9 @@ Fill in every TODO. Keep the golden rules:
   - idempotent + resumable
 """
 from __future__ import annotations
+import os
+import asyncio
+
 from app.services.selection import select_competency_question
 from app.services.grading import grade_answer
 from app.services.estimation import estimate_level
@@ -281,18 +284,8 @@ async def check_convergence(db, session: dict, state: dict) -> None:
 
 async def finalize(db, session: dict, state: dict) -> dict:
     """Compute per-competency level → %/band, overall %, write final_reports, mark the
-    session completed, set _complete.
-
-    All scoring math (pct = level*20, band mapping, the low-confidence rule) is
-    delegated to app.services.scoring — the Scoring, Reporting, Email & Observability
-    lane — so this function only orchestrates reading state and writing rows. See
-    app/services/scoring.py and backend/migrations/005_reports.sql for the schema and
-    the tested scoring logic.
-
-    TODO (outside the scoring lane's current scope): send report + admin emails, log
-    each send. finalize() sets state['_complete']/state['_emit'] so the email step can
-    be added here later without touching the scoring/persistence logic above it.
-    """
+    session completed, set _complete, and dispatch completion emails."""
+    
     from datetime import datetime, timezone
 
     from app.services.scoring import (
@@ -300,6 +293,9 @@ async def finalize(db, session: dict, state: dict) -> dict:
         final_report_row,
         session_competency_result_row,
     )
+    
+    # Import our new email service functions
+    from app.services.email import send_report_background, send_admin_notification_background
 
     per_competency: dict = state.get("per_competency", {})
     if not per_competency:
@@ -329,11 +325,39 @@ async def finalize(db, session: dict, state: dict) -> dict:
         .execute()
     )
 
+    # =========================================================
+    # EMAIL DISPATCH (Non-Blocking)
+    # =========================================================
+    candidate_email = session.get("candidate_email")
+    admin_email = os.environ.get("ADMIN_EMAIL", "admin@yourdomain.com") 
+
+    # Dispatch candidate report email
+    if candidate_email:
+        asyncio.create_task(
+            send_report_background(
+                db, 
+                to=candidate_email, 
+                overall_pct=report_row.get("overall_pct", 0), 
+                band=report_row.get("level_label", "Unknown"), 
+                is_low_confidence=report_row.get("is_low_confidence", False)
+            )
+        )
+    
+    # Dispatch admin notification email
+    if admin_email:
+        asyncio.create_task(
+            send_admin_notification_background(
+                db, 
+                admin_email=admin_email, 
+                session_id=str(session["id"])
+            )
+        )
+
     state["_complete"] = True
     state["_emit"] = {
         "type": "complete",
         "message": "Assessment complete — your report is ready.",
-        "overall_pct": report_row["overall_pct"],
-        "level_label": report_row["level_label"],
+        "overall_pct": report_row.get("overall_pct"),
+        "level_label": report_row.get("level_label"),
     }
     return state
