@@ -166,11 +166,10 @@ class FakeQuery:
     # -----------------------------------------------------
 
     def _rows(self) -> list[dict]:
-
-    def _matches(self, row: dict) -> bool:
-        def one(field, value):
-            if isinstance(value, set):
-                return row.get(field) in value
+        def _matches(self, row: dict) -> bool:
+            def one(field, value):
+                if isinstance(value, set):
+                    return row.get(field) in value
             return row.get(field) == value
         return all(one(field, value) for field, value in self._filters)
 

@@ -2,13 +2,12 @@
 // Maps a question's tool_type to the React component that renders it.
 // Adding a new tool type later = add one line here, nothing else changes.
 
+// app/assess/tools/registry.ts
 import type { ComponentType } from "react";
 import Mcq, { type McqProps } from "./Mcq";
-import OpenEndedText, { type OpenEndedTextProps } from "./OpenEndedText";
+import VoiceRecorder, { type VoiceRecorderProps } from "./VoiceRecorder";  // was OpenEndedText
 import DataAnalysis, { type DataAnalysisProps } from "./DataAnalysis";
 
-// A loose common shape every answer component shares, so the registry can
-// treat them uniformly even though each has slightly different props.
 export interface AnswerComponentProps {
   question: {
     id: string;
@@ -21,10 +20,11 @@ export interface AnswerComponentProps {
 
 export const answerComponentRegistry: Record<string, ComponentType<any>> = {
   mcq: Mcq,
-  voice: OpenEndedText,
+  voice: VoiceRecorder,   // was OpenEndedText
   visualization: DataAnalysis,
 };
 
 export function getAnswerComponent(toolType: string): ComponentType<any> | null {
   return answerComponentRegistry[toolType] ?? null;
 }
+
