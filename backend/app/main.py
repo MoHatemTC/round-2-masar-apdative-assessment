@@ -63,9 +63,6 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 app.include_router(admin.router)
 app.include_router(candidate_intake.router)
 app.include_router(chat.router)
-app.include_router(admin.router)
-app.include_router(candidate_intake.router)
-app.include_router(chat.router)
 app.include_router(transcribe.router)
 
 if os.getenv("ENABLE_SANDBOX_ROUTE", "false").lower() == "true":
