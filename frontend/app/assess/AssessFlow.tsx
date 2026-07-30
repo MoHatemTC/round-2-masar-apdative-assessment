@@ -249,6 +249,7 @@ export default function AssessFlow() {
           onSubmit={(result: ToolResult) => next(result)}
           isSubmitting={isSubmitting}
           sessionId={sessionId}
+          questionNumber={(question as any).question_number}
         />
       )}
       {question && !AnswerComponent && (
