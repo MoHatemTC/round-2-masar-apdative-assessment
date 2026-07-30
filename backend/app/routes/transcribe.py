@@ -6,7 +6,9 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from app.db import get_db
 from app.services.llm import call_stt
 from app.services.grading import grade_answer
+import logging
 
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["voice"])
 
 MAX_BYTES = 25 * 1024 * 1024
