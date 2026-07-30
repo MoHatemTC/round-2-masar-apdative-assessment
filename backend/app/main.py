@@ -3,15 +3,17 @@
 Run:
     uvicorn app.main:app --reload
 """
-import os
+
 import importlib
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.routes import admin, candidate_intake, chat, sandbox
+from app.routes import admin, candidate_intake, chat, proctoring   # <-- ADDED proctoring
+from app.workers.proctoring_worker import start_worker, stop_worker  # <-- ADDED
 
 logger = logging.getLogger(__name__)
 
@@ -20,8 +22,20 @@ import_router = importlib.import_module("app.api.routers.import")
 questions_router = importlib.import_module("app.api.routers.questions")
 question_sets_router = importlib.import_module("app.api.routers.question_sets")
 
+
+# ---- Lifespan: start/stop the proctoring vision worker ---------------------
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    start_worker()
+    try:
+        yield
+    finally:
+        await stop_worker()
+
+
 app = FastAPI(
-    title="Adaptive Competency Assessment (intern starter)"
+    title="Adaptive Competency Assessment (intern starter)",
+    lifespan=lifespan,   # <-- ADDED
 )
 
 app.add_middleware(
@@ -42,30 +56,19 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     problem. This guarantees every unhandled error still gets a clean JSON body and CORS headers,
     so the frontend sees the actual failure instead of a misleading CORS message.
     """
-    logger.exception(
-    "Unhandled exception on %s %s",
-    request.method,
-    request.url.path,
-)
-
+    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
     return JSONResponse(
-    status_code=500,
-    content={
-        "detail": "Internal server error."
-    },
-    headers={
-        "Access-Control-Allow-Origin":
-        "http://localhost:3000"
-    },
-)
+        status_code=500,
+        content={"detail": f"{type(exc).__name__}: {exc}"},
+        headers={"Access-Control-Allow-Origin": "http://localhost:3000"},
+    )
 
 
 app.include_router(admin.router)
 app.include_router(candidate_intake.router)
 app.include_router(chat.router)
-#app.include_router(sandbox.router)
-if os.getenv("ENABLE_SANDBOX_ROUTE", "false").lower() == "true":
-    app.include_router(sandbox.router)
+app.include_router(proctoring.router)     # <-- ADDED
+
 # ---------------------------------------------------------
 # Question Bank API
 # ---------------------------------------------------------

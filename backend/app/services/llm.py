@@ -6,50 +6,35 @@ exponential backoff, a capped max_tokens, and is logged to ai_logs.
 """
 from __future__ import annotations
 
+import base64
 import os
 import asyncio
 import logging
-from dotenv import load_dotenv
+from typing import Iterable
+
 from openai import AsyncOpenAI, APIError, APITimeoutError
-load_dotenv()
+
 from app.db import get_db
 
 logger = logging.getLogger(__name__)
 
-_client: AsyncOpenAI | None = None
-MODEL = os.getenv("LLM_MODEL", "kimi-k2.5")
+_client = AsyncOpenAI(
+    base_url=os.environ["LLM_BASE_URL"],
+    api_key=os.environ["LLM_API_KEY"],
+)
+
+MODEL = os.environ.get("LLM_MODEL", "kimi-k2.5")
+# Separate model for vision — set to whatever multimodal endpoint your provider offers.
+# Falls back to MODEL so single-model deployments still work.
+VISION_MODEL = os.environ.get("LLM_VISION_MODEL", MODEL)
+
 MAX_TOKENS = 2000
 MAX_RETRIES = 3
 BASE_BACKOFF_SECONDS = 1.0
 
 # Must match the `kind` values allowed by the ai_logs table.
-VALID_KINDS = {"personalize", "grade", "cv_estimate", "stt", "generate"}
-
-
-def _get_client() -> AsyncOpenAI | None:
-    """
-    Lazily construct the OpenAI client.
-
-    This keeps module import safe even when LLM credentials are absent.
-    """
-
-    global _client
-
-    if _client is not None:
-        return _client
-
-    base_url = os.getenv("LLM_BASE_URL")
-    api_key = os.getenv("LLM_API_KEY")
-
-    if not base_url or not api_key:
-        return None
-
-    _client = AsyncOpenAI(
-        base_url=base_url,
-        api_key=api_key,
-    )
-
-    return _client
+# 'vision' was added for the AI-Proctoring worker (see app/workers/proctoring_worker.py).
+VALID_KINDS = {"personalize", "grade", "cv_estimate", "stt", "generate", "vision"}
 
 
 async def call_llm(prompt: str, *, kind: str, session_id: str | None = None) -> dict:
@@ -68,20 +53,11 @@ async def call_llm(prompt: str, *, kind: str, session_id: str | None = None) -> 
     if kind not in VALID_KINDS:
         raise ValueError(f"Invalid kind {kind!r}. Must be one of {VALID_KINDS}")
 
-    client = _get_client()
-
-    if client is None:
-        return {
-            "success": False,
-            "text": None,
-            "error": "LLM is not configured.",
-        }
-
     last_error = None
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            response = await client.chat.completions.create(
+            response = await _client.chat.completions.create(
                 model=MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 max_completion_tokens=MAX_TOKENS,
@@ -98,6 +74,58 @@ async def call_llm(prompt: str, *, kind: str, session_id: str | None = None) -> 
 
     # All retries exhausted — log the failure too (response left null), then return gracefully.
     await _safe_log(session_id=session_id, kind=kind, prompt=prompt, response=None)
+    return {"success": False, "text": None, "error": last_error}
+
+
+# =============================================================================
+# Vision variant — added for AI Proctoring (Week 3).
+# Same contract as call_llm: never raises, always returns the {success, text, error} dict,
+# always logs to ai_logs. Callers batch several frames + one reference photo into a single
+# call to keep cost bounded (see app/workers/proctoring_worker.py).
+# =============================================================================
+
+async def call_llm_vision(
+    prompt: str,
+    images: Iterable[bytes],
+    *,
+    session_id: str | None = None,
+) -> dict:
+    """
+    Multimodal call: text prompt + one or more JPEG images.
+
+    Images are passed as base64 data URLs. The provider is expected to be
+    OpenAI-compatible (the same base_url the rest of the codebase uses).
+
+    Returns: {"success": bool, "text": str | None, "error": str | None}
+    """
+    content: list[dict] = [{"type": "text", "text": prompt}]
+    for img in images:
+        b64 = base64.b64encode(img).decode("ascii")
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
+        })
+
+    last_error = None
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            response = await _client.chat.completions.create(
+                model=VISION_MODEL,
+                messages=[{"role": "user", "content": content}],
+                max_completion_tokens=MAX_TOKENS,
+            )
+            response_text = response.choices[0].message.content
+            # Only the text prompt is logged (base64 images would blow up ai_logs).
+            await _safe_log(session_id=session_id, kind="vision", prompt=prompt, response=response_text)
+            return {"success": True, "text": response_text, "error": None}
+
+        except (APIError, APITimeoutError) as e:
+            last_error = str(e)
+            logger.warning(f"Vision call failed (attempt {attempt}/{MAX_RETRIES}): {last_error}")
+            if attempt < MAX_RETRIES:
+                await asyncio.sleep(BASE_BACKOFF_SECONDS * (2 ** (attempt - 1)))
+
+    await _safe_log(session_id=session_id, kind="vision", prompt=prompt, response=None)
     return {"success": False, "text": None, "error": last_error}
 
 
