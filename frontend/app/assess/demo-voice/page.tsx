@@ -66,7 +66,7 @@ export default function DemoVoicePage() {
           sessionId={DEMO_SESSION_ID}
           onSubmit={handleSubmit}
           isSubmitting={submitting}
-          questionNumber={DEMO_QUESTION_NUMBER} 
+          questionNumber={DEMO_QUESTION_NUMBER}
         />
 
         {result != null && (

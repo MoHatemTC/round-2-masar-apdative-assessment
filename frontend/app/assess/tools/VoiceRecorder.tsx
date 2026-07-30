@@ -283,7 +283,7 @@ export interface VoiceRecorderProps {
   onSubmit: (result: SubmitResult) => void;
   isSubmitting?: boolean;
   sessionId: string;
-  questionNumber: number; 
+  questionNumber: number;
 }
 
 type RecordState = "idle" | "recording" | "recorded" | "no_mic";
