@@ -1,0 +1,82 @@
+{
+  "AIE-1-Q02": {
+    "body": "Walk me through how you'd design and iterate on a prompt for a feature that summarizes support tickets into a fixed set of fields. How would you know it's good enough to ship?",
+    "payload": {
+      "evaluation_criteria": [
+        "Starts from the desired output shape / fields and works backward to the prompt",
+        "Mentions few-shot examples, constraints, and handling edge cases (empty/ambiguous tickets)",
+        "Defines a concrete 'good enough' bar (a small labelled set, target accuracy) rather than eyeballing",
+        "Describes iterating on failures rather than one-shot prompting"
+      ],
+      "time_limit_seconds": 150
+    }
+  },
+  "AIE-4-Q03": {
+    "body": "A new prompt version raised overall accuracy from 82% to 86%, but on the 'refunds' category it dropped from 90% to 71%. Should you ship it, and what would you do next?",
+    "payload": {
+      "expected_insights": [
+        "Notices the overall gain hides a serious per-category regression on refunds",
+        "Concludes you should NOT ship as-is (or ship gated) because a key category got worse",
+        "Proposes drilling into the refunds failures and fixing before rollout",
+        "Values per-segment metrics over a single headline number"
+      ],
+      "data": "Overall accuracy 82% \u2192 86%. Per-category: refunds 90% \u2192 71%, billing 80% \u2192 88%, general 79% \u2192 85%."
+    }
+  },
+  "AIE-6-Q01": {
+    "body": "A feature works but is too slow and too expensive in production. Without hurting quality much, what levers would you pull, and how would you decide which ones actually helped?",
+    "payload": {
+      "evaluation_criteria": [
+        "Names concrete levers (smaller/cheaper model for easy cases, caching, shorter prompts/context, batching, streaming)",
+        "Ties decisions to measured latency + cost per request, not guesses",
+        "Guards quality with the eval set while optimizing",
+        "Prioritises by impact rather than changing everything at once"
+      ],
+      "time_limit_seconds": 180
+    }
+  },
+  "AIE-3-Q02": {
+    "body": "Implement `dispatch(tool_name, args)` that routes to the right tool. Support 'add' (returns args['a'] + args['b']) and 'upper' (returns args['text'].upper()). For any unknown tool, return the string 'unknown tool'.",
+    "payload": {
+      "language": "python",
+      "starter_code": "def dispatch(tool_name, args):\n    # route to the right tool and return its result\n    pass",
+      "test_cases": [
+        {
+          "input": "dispatch('add', {'a': 2, 'b': 3})",
+          "expected_output": "5"
+        },
+        {
+          "input": "dispatch('upper', {'text': 'hi'})",
+          "expected_output": "HI"
+        },
+        {
+          "input": "dispatch('nope', {})",
+          "expected_output": "unknown tool"
+        }
+      ],
+      "expected_approach": "Dictionary or if/elif dispatch on tool_name; default branch returns 'unknown tool'."
+    }
+  },
+  "AIE-5-Q01": {
+    "body": "Write `top_model(usage)` that takes a list of dicts like {'model': 'gpt', 'tokens': 100} and returns the model name with the highest total tokens across the list. If the list is empty, return None.",
+    "payload": {
+      "language": "python",
+      "starter_code": "def top_model(usage):\n    pass",
+      "test_cases": [
+        {
+          "input": "top_model([{'model':'a','tokens':100},{'model':'b','tokens':250},{'model':'a','tokens':200}])",
+          "expected_output": "a"
+        },
+        {
+          "input": "top_model([{'model':'x','tokens':5}])",
+          "expected_output": "x"
+        },
+        {
+          "input": "top_model([])",
+          "expected_output": "None"
+        }
+      ],
+      "expected_approach": "Aggregate tokens per model in a dict, then return the key with the max value; guard the empty case."
+    }
+  }
+}

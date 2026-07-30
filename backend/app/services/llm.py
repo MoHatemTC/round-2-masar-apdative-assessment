@@ -1,90 +1,55 @@
-"""
-llm.py — the single gateway for all LLM calls in this codebase.
-
-No other module may call the LLM client directly. Every call goes through retries with
-exponential backoff, a capped max_tokens, and is logged to ai_logs.
-"""
 from __future__ import annotations
-
 import os
 import asyncio
 import logging
-from dotenv import load_dotenv
 from openai import AsyncOpenAI, APIError, APITimeoutError
-load_dotenv()
 from app.db import get_db
 
 logger = logging.getLogger(__name__)
 
-_client: AsyncOpenAI | None = None
-MODEL = os.getenv("LLM_MODEL", "kimi-k2.5")
+# --- Grading client (Gemini) ---
+# Timeout raised from 30s -> 90s: grading prompts can legitimately take longer
+# than 30s to generate on a slower/reasoning-heavy model, and killing the
+# request mid-generation just guarantees a retry (or, after 3, a None score)
+# instead of the answer we were already about to get.
+_client = AsyncOpenAI(
+    base_url=os.environ["LLM_BASE_URL"],
+    api_key=os.environ["LLM_API_KEY"],
+    timeout=120.0,
+)
+MODEL = os.environ["LLM_MODEL"]
+
+# --- STT client (Groq) — separate from grading, per the env split ---
+_stt_client = AsyncOpenAI(
+    base_url=os.environ["STT_BASE_URL"],
+    api_key=os.environ["STT_API_KEY"],
+    timeout=60.0,
+)
+STT_MODEL = os.environ["STT_MODEL"]
+
 MAX_TOKENS = 2000
 MAX_RETRIES = 3
 BASE_BACKOFF_SECONDS = 1.0
 
-# Must match the `kind` values allowed by the ai_logs table.
 VALID_KINDS = {"personalize", "grade", "cv_estimate", "stt", "generate"}
 
 
-def _get_client() -> AsyncOpenAI | None:
-    """
-    Lazily construct the OpenAI client.
-
-    This keeps module import safe even when LLM credentials are absent.
-    """
-
-    global _client
-
-    if _client is not None:
-        return _client
-
-    base_url = os.getenv("LLM_BASE_URL")
-    api_key = os.getenv("LLM_API_KEY")
-
-    if not base_url or not api_key:
-        return None
-
-    _client = AsyncOpenAI(
-        base_url=base_url,
-        api_key=api_key,
-    )
-
-    return _client
-
-
-async def call_llm(prompt: str, *, kind: str, session_id: str | None = None) -> dict:
-    """
-    Call the LLM with retries + exponential backoff. Logs the final outcome to ai_logs.
-
-    `kind` must be one of VALID_KINDS (matches the ai_logs.kind column's expected values).
-    `session_id` is optional — pass it when the call happens within a candidate session,
-    so the log row can be traced back to that session.
-
-    Returns: {"success": bool, "text": str | None, "error": str | None}
-    Never raises — callers (like grade_answer) must be able to degrade gracefully.
-    A failure to WRITE the log (separate from a failure to call the LLM) is also
-    swallowed, so telemetry can never take down grading.
-    """
+async def call_llm(prompt: str, *, kind: str, session_id: str | None = None, max_tokens: int | None = None) -> dict:
+    """`max_tokens` lets a caller cap the reply size for kinds that don't need
+    the full MAX_TOKENS budget (e.g. grading's short SCORE/RATIONALE format) —
+    a tighter cap means the model finishes generating sooner, which reduces
+    both wall-clock time and the odds of hitting the client timeout at all."""
     if kind not in VALID_KINDS:
         raise ValueError(f"Invalid kind {kind!r}. Must be one of {VALID_KINDS}")
-
-    client = _get_client()
-
-    if client is None:
-        return {
-            "success": False,
-            "text": None,
-            "error": "LLM is not configured.",
-        }
 
     last_error = None
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            response = await client.chat.completions.create(
+            response = await _client.chat.completions.create(
                 model=MODEL,
                 messages=[{"role": "user", "content": prompt}],
-                max_completion_tokens=MAX_TOKENS,
+                max_completion_tokens=max_tokens or MAX_TOKENS,
             )
             response_text = response.choices[0].message.content
             await _safe_log(session_id=session_id, kind=kind, prompt=prompt, response=response_text)
@@ -96,13 +61,35 @@ async def call_llm(prompt: str, *, kind: str, session_id: str | None = None) -> 
             if attempt < MAX_RETRIES:
                 await asyncio.sleep(BASE_BACKOFF_SECONDS * (2 ** (attempt - 1)))
 
-    # All retries exhausted — log the failure too (response left null), then return gracefully.
     await _safe_log(session_id=session_id, kind=kind, prompt=prompt, response=None)
     return {"success": False, "text": None, "error": last_error}
 
 
+async def call_stt(audio_bytes: bytes, filename: str, *, session_id: str | None = None) -> dict:
+    """Transcribe audio via the STT client (Groq), same retry/backoff/logging contract as call_llm."""
+    last_error = None
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            response = await _stt_client.audio.transcriptions.create(
+                model=STT_MODEL,
+                file=(filename, audio_bytes),
+            )
+            response_text = response.text
+            await _safe_log(session_id=session_id, kind="stt", prompt="[audio]", response=response_text)
+            return {"success": True, "text": response_text, "error": None}
+
+        except (APIError, APITimeoutError) as e:
+            last_error = str(e)
+            logger.warning(f"STT call failed (attempt {attempt}/{MAX_RETRIES}): {last_error}")
+            if attempt < MAX_RETRIES:
+                await asyncio.sleep(BASE_BACKOFF_SECONDS * (2 ** (attempt - 1)))
+
+    await _safe_log(session_id=session_id, kind="stt", prompt="[audio]", response=None)
+    return {"success": False, "text": None, "error": last_error}
+
+
 async def _safe_log(*, session_id: str | None, kind: str, prompt: str, response: str | None) -> None:
-    """Wraps _log_to_ai_logs so a logging/DB failure can never crash call_llm's caller."""
     try:
         await _log_to_ai_logs(session_id=session_id, kind=kind, prompt=prompt, response=response)
     except Exception as e:
@@ -110,7 +97,6 @@ async def _safe_log(*, session_id: str | None, kind: str, prompt: str, response:
 
 
 async def _log_to_ai_logs(*, session_id: str | None, kind: str, prompt: str, response: str | None) -> None:
-    """Insert one row into ai_logs, matching its real schema exactly."""
     db = await get_db()
     await db.table("ai_logs").insert({
         "session_id": session_id,
