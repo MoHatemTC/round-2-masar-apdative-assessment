@@ -32,7 +32,7 @@ class _FakeQuery:
     def eq(self, column, value):
         self._filters[column] = value
         return self
-        
+
     def order(self, *_args, **_kwargs):
         return self
 
@@ -56,9 +56,9 @@ class TestGetReportEndpoint:
             "sessions": [{"id": "sess-1", "status": "completed"}],
             "final_reports": [{
                 "session_id": "sess-1",
-                "overall_score": 75,
-                "band": "Advanced",
-                "is_low_confidence": False
+                "overall_pct": 75,
+                "level_label": "Advanced",
+                "has_low_confidence": False
             }],
             "session_competency_results": [
                 {"session_id": "sess-1", "competency_id": "comp-python", "low_confidence": False},
@@ -74,8 +74,8 @@ class TestGetReportEndpoint:
         result = await get_report("sess-1", db=fake_db)
 
         assert result["session_id"] == "sess-1"
-        assert result["overall_score"] == 75
-        assert result["band"] == "Advanced"
+        assert result["overall_pct"] == 75
+        assert result["level_label"] == "Advanced"
         assert len(result["competency_results"]) == 2
         assert len(result["answers"]) == 2
 
@@ -84,9 +84,9 @@ class TestGetReportEndpoint:
             "sessions": [{"id": "sess-1", "status": "completed"}],
             "final_reports": [{
                 "session_id": "sess-1",
-                "overall_score": 40,
-                "band": "Developing",
-                "is_low_confidence": True
+                "overall_pct": 40,
+                "level_label": "Developing",
+                "has_low_confidence": True
             }],
             "session_competency_results": [
                 {
@@ -102,7 +102,7 @@ class TestGetReportEndpoint:
 
         result = await get_report("sess-1", db=fake_db)
 
-        assert result["is_low_confidence"] is True
+        assert result["has_low_confidence"] is True
         assert result["competency_results"][0]["low_confidence"] is True
         assert result["competency_results"][0]["converged_reason"] == "max_questions"
 
@@ -153,8 +153,8 @@ class TestGetReportEndpoint:
                 {"id": "sess-2", "status": "completed"}
             ],
             "final_reports": [
-                {"session_id": "sess-1", "overall_score": 80, "band": "Advanced", "is_low_confidence": False},
-                {"session_id": "sess-2", "overall_score": 90, "band": "Expert", "is_low_confidence": False},
+                {"session_id": "sess-1", "overall_pct": 80, "level_label": "Advanced", "has_low_confidence": False},
+                {"session_id": "sess-2", "overall_pct": 90, "level_label": "Expert", "has_low_confidence": False},
             ],
             "session_competency_results": [
                 {"session_id": "sess-1", "competency_id": "a"},
@@ -169,7 +169,7 @@ class TestGetReportEndpoint:
 
         result = await get_report("sess-1", db=fake_db)
 
-        assert result["overall_score"] == 80
+        assert result["overall_pct"] == 80
         assert len(result["competency_results"]) == 1
         assert result["competency_results"][0]["competency_id"] == "a"
         assert len(result["answers"]) == 1

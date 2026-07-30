@@ -243,3 +243,62 @@ class TestFinalizeIdempotency:
 
         assert first_scr_payload == second_scr_payload
         assert first_report_payload == second_report_payload
+
+
+class TestFinalizeEmailLowConfidence:
+    """Verify finalize() reads `has_low_confidence` (not `is_low_confidence`)
+    from the report row and forwards the correct value to the candidate email."""
+
+    async def test_low_confidence_true_passed_to_email(self, monkeypatch):
+        """When at least one competency is low-confidence, the email dispatch
+        must receive is_low_confidence=True."""
+        db = _FakeDB()
+        db.seed("sessions", [{"id": "sess-1", "status": "in_progress"}])
+
+        captured_tasks = []
+        monkeypatch.setattr("asyncio.create_task", lambda coro: captured_tasks.append(coro))
+
+        session = {"id": "sess-1", "candidate_email": "user@example.com"}
+        await finalize(db, session, _sample_state())
+
+        # The first create_task call is send_report_background
+        assert len(captured_tasks) >= 1
+        report_coro = captured_tasks[0]
+        # Inspect the coroutine's cr_frame locals to verify the kwarg
+        frame_locals = report_coro.cr_frame.f_locals
+        assert frame_locals.get("is_low_confidence") is True
+        report_coro.close()
+        for t in captured_tasks[1:]:
+            t.close()
+
+    async def test_low_confidence_false_passed_to_email(self, monkeypatch):
+        """When all competencies converge normally, the email dispatch must
+        receive is_low_confidence=False."""
+        db = _FakeDB()
+        db.seed("sessions", [{"id": "sess-2", "status": "in_progress"}])
+
+        captured_tasks = []
+        monkeypatch.setattr("asyncio.create_task", lambda coro: captured_tasks.append(coro))
+
+        all_confident_state = {
+            "per_competency": {
+                "comp-python": {
+                    "self_rating": 4,
+                    "initial_estimate": 4,
+                    "level": 5,
+                    "confidence": 0.95,
+                    "converged_reason": "confidence",
+                    "questions_asked": 4,
+                },
+            }
+        }
+        session = {"id": "sess-2", "candidate_email": "user@example.com"}
+        await finalize(db, session, all_confident_state)
+
+        assert len(captured_tasks) >= 1
+        report_coro = captured_tasks[0]
+        frame_locals = report_coro.cr_frame.f_locals
+        assert frame_locals.get("is_low_confidence") is False
+        report_coro.close()
+        for t in captured_tasks[1:]:
+            t.close()

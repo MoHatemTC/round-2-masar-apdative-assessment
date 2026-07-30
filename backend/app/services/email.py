@@ -32,7 +32,7 @@ async def _send_with_retry(db: AsyncClient, to: str, subject: str, html_content:
         attempt += 1
         try:
             resend.Emails.send({
-                "from": os.environ.get("EMAIL_FROM", "onboarding@resend.dev"),
+                "from": "onboarding@resend.dev",
                 "to": to,
                 "subject": subject,
                 "html": html_content
@@ -52,7 +52,7 @@ async def send_invitation_background(db: AsyncClient, to: str, token: str, base_
     invite_link = f"{base_url}/assess?token={token}"
     html = f"""
     <div style="font-family: Arial, sans-serif; padding: 20px;">
-        <h2>Assessment Invitation</h2>
+        <h2>Assessment Invitation </h2>
         <p>You have been invited to complete a competency assessment.</p>
         <a href="{invite_link}" style="display: inline-block; padding: 10px 20px; background-color: #007bff; color: #ffffff; text-decoration: none; border-radius: 5px;">Start Assessment</a>
     </div>
@@ -68,7 +68,7 @@ async def send_report_background(db: AsyncClient, to: str, overall_pct: float, b
     """
     if is_low_confidence:
         html += '<p style="color: #d9534f;"><em>Note: These results are marked as low confidence due to early termination or insufficient data.</em></p>'
-    
+
     html += "</div>"
     await _send_with_retry(db, to, "Your Assessment Results", html)
 

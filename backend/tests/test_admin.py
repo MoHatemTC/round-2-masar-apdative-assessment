@@ -104,7 +104,7 @@ def test_all_admin_routes():
             assessment_id = str(uuid.uuid4())
             dup_email = "test@example.com"
             fake_db.mock_invitations = [{"id": str(uuid.uuid4()), "token": "existing-token", "candidate_email": dup_email, "assessment_id": assessment_id}]
-            
+
             dup_payload = {
                 "assessment_id": assessment_id,
                 "candidate_email": dup_email
@@ -127,12 +127,12 @@ def test_all_admin_routes():
             assert list_res.status_code == 200
             items = list_res.json()
             assert len(items) == 3
-            
+
             status_map = {item["candidate_email"]: item["status"] for item in items}
             assert status_map["user1@example.com"] == "not_taken"
             assert status_map["user2@example.com"] == "in_progress"
             assert status_map["user3@example.com"] == "taken"
-            
+
             session_map = {item["candidate_email"]: item.get("session_id") for item in items}
             assert session_map["user1@example.com"] is None
             assert session_map["user2@example.com"] == "sess1"

@@ -101,9 +101,9 @@ export interface AnswerDetail {
 
 export interface SessionReport {
   session_id: string;
-  overall_score: number;
-  band: string;
-  is_low_confidence: boolean;
+  overall_pct: number;
+  level_label: string;
+  has_low_confidence: boolean;
   competency_results: CompetencyResult[];
   answers: AnswerDetail[];
 }
@@ -141,9 +141,9 @@ export async function getAssessmentByToken(token: string): Promise<AssessmentInf
 export async function startSession(assessmentId: string, token?: string): Promise<{ session_id: string }> {
   return apiRequest("/session/start", {
     method: "POST",
-    body: JSON.stringify({ 
+    body: JSON.stringify({
       assessment_id: assessmentId,
-      token: token 
+      token: token
     }),
   });
 }

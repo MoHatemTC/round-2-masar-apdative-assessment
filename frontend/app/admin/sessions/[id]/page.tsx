@@ -111,7 +111,7 @@ export default function SessionReportPage() {
       </div>
 
       {/* ── Low confidence warning ── */}
-      {report.is_low_confidence && (
+      {report.has_low_confidence && (
         <div
           role="alert"
           className="mb-6 flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3"
@@ -138,13 +138,13 @@ export default function SessionReportPage() {
 
       {/* ── Section 1: Summary ── */}
       <Card className="mb-6 flex flex-col sm:flex-row items-center gap-8 py-8">
-        <ScoreRing value={report.overall_score} size={160} strokeWidth={11} label="Overall Score" />
+        <ScoreRing value={report.overall_pct} size={160} strokeWidth={11} label="Overall Score" />
 
         <div className="flex flex-col items-center sm:items-start gap-3">
           <div className="flex items-center gap-3">
             <span className="text-sm font-medium text-muted-foreground">Band:</span>
             <span className="inline-flex items-center rounded-full bg-primary/15 px-3.5 py-1 text-sm font-semibold text-primary">
-              {report.band}
+              {report.level_label}
             </span>
           </div>
           <p className="text-xs text-muted-foreground font-mono">
