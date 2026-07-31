@@ -259,7 +259,7 @@ export default function AssessFlow() {
           overall_pct={done.overall_pct ?? 0}
           level_label={done.level_label ?? ""}
           message={done.message}
-          is_low_confidence={done.is_low_confidence}
+          has_low_confidence={done.has_low_confidence}
         />
       )}
     </main>

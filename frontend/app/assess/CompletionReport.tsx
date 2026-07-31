@@ -7,7 +7,7 @@ interface CompletionReportProps {
   overall_pct: number;
   level_label: string;
   message?: string;
-  is_low_confidence?: boolean;
+  has_low_confidence?: boolean;
 }
 
 /**
@@ -22,12 +22,12 @@ export default function CompletionReport({
   overall_pct,
   level_label,
   message,
-  is_low_confidence,
+  has_low_confidence,
 }: CompletionReportProps) {
   return (
     <div className="flex flex-col gap-5">
       {/* ── Low confidence warning ── */}
-      {is_low_confidence && (
+      {has_low_confidence && (
         <div
           role="alert"
           className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3"

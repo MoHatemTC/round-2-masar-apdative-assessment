@@ -359,5 +359,6 @@ async def finalize(db, session: dict, state: dict) -> dict:
         "message": "Assessment complete — your report is ready.",
         "overall_pct": report_row.get("overall_pct"),
         "level_label": report_row.get("level_label"),
+        "has_low_confidence": report_row.get("has_low_confidence", False),
     }
     return state

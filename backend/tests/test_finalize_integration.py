@@ -181,6 +181,32 @@ class TestFinalizePersistence:
         assert result_state["_complete"] is True
         assert result_state["_emit"]["overall_pct"] == 70
         assert result_state["_emit"]["level_label"] == "Advanced"
+        # The sample state has one cap-converged (low-confidence) competency,
+        # so has_low_confidence must be True in the candidate-facing payload.
+        assert result_state["_emit"]["has_low_confidence"] is True
+
+    async def test_emit_has_low_confidence_false_when_all_confident(self):
+        """When every competency converges by confidence, the completion emit
+        must carry has_low_confidence=False."""
+        db = _FakeDB()
+        db.seed("sessions", [{"id": "sess-3", "status": "in_progress"}])
+
+        all_confident = {
+            "per_competency": {
+                "comp-python": {
+                    "self_rating": 4,
+                    "initial_estimate": 4,
+                    "level": 5,
+                    "confidence": 0.95,
+                    "converged_reason": "confidence",
+                    "questions_asked": 4,
+                },
+            }
+        }
+        result_state = await finalize(db, {"id": "sess-3"}, all_confident)
+
+        assert result_state["_complete"] is True
+        assert result_state["_emit"]["has_low_confidence"] is False
 
     async def test_raises_on_empty_per_competency(self):
         db = _FakeDB()
