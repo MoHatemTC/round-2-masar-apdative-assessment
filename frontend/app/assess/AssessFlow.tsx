@@ -110,7 +110,7 @@ export default function AssessFlow() {
     setIsSubmitting(true);
     setLoopError(null);
     try {
-      const r = await turn({ session_id: sessionId, tool_result: toolResult });
+      const r = await turn({ session_id: sessionId, tool_result: toolResult, question_number: question?.question_number });
       if (r.complete) {
         setDone(r.emit);
         setQuestion(null);
