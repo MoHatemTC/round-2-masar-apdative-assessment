@@ -339,7 +339,7 @@ async def finalize(db, session: dict, state: dict) -> dict:
                 to=candidate_email,
                 overall_pct=report_row.get("overall_pct", 0),
                 band=report_row.get("level_label", "Unknown"),
-                is_low_confidence=report_row.get("has_low_confidence", False)
+                has_low_confidence=report_row.get("has_low_confidence", False)
             )
         )
 

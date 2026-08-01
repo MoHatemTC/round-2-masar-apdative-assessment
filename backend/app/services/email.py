@@ -59,14 +59,14 @@ async def send_invitation_background(db: AsyncClient, to: str, token: str, base_
     """
     await _send_with_retry(db, to, "Assessment Invitation", html)
 
-async def send_report_background(db: AsyncClient, to: str, overall_pct: float, band: str, is_low_confidence: bool):
+async def send_report_background(db: AsyncClient, to: str, overall_pct: float, band: str, has_low_confidence: bool):
     html = f"""
     <div style="font-family: Arial, sans-serif; padding: 20px;">
         <h2>Your Assessment Report</h2>
         <p><strong>Overall Score:</strong> {overall_pct}%</p>
         <p><strong>Competency Band:</strong> {band}</p>
     """
-    if is_low_confidence:
+    if has_low_confidence:
         html += '<p style="color: #d9534f;"><em>Note: These results are marked as low confidence due to early termination or insufficient data.</em></p>'
 
     html += "</div>"

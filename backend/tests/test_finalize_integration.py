@@ -277,7 +277,7 @@ class TestFinalizeEmailLowConfidence:
 
     async def test_low_confidence_true_passed_to_email(self, monkeypatch):
         """When at least one competency is low-confidence, the email dispatch
-        must receive is_low_confidence=True."""
+        must receive has_low_confidence=True."""
         db = _FakeDB()
         db.seed("sessions", [{"id": "sess-1", "status": "in_progress"}])
 
@@ -292,14 +292,14 @@ class TestFinalizeEmailLowConfidence:
         report_coro = captured_tasks[0]
         # Inspect the coroutine's cr_frame locals to verify the kwarg
         frame_locals = report_coro.cr_frame.f_locals
-        assert frame_locals.get("is_low_confidence") is True
+        assert frame_locals.get("has_low_confidence") is True
         report_coro.close()
         for t in captured_tasks[1:]:
             t.close()
 
     async def test_low_confidence_false_passed_to_email(self, monkeypatch):
         """When all competencies converge normally, the email dispatch must
-        receive is_low_confidence=False."""
+        receive has_low_confidence=False."""
         db = _FakeDB()
         db.seed("sessions", [{"id": "sess-2", "status": "in_progress"}])
 
@@ -324,7 +324,7 @@ class TestFinalizeEmailLowConfidence:
         assert len(captured_tasks) >= 1
         report_coro = captured_tasks[0]
         frame_locals = report_coro.cr_frame.f_locals
-        assert frame_locals.get("is_low_confidence") is False
+        assert frame_locals.get("has_low_confidence") is False
         report_coro.close()
         for t in captured_tasks[1:]:
             t.close()
