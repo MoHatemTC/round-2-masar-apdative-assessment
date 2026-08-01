@@ -446,6 +446,21 @@ export default function VoiceRecorder({ question, onSubmit, isSubmitting = false
     if (isSubmitting) return;
     await submitWhatWeHave();
   }
+  
+  async function handleSkip() {
+  if (isSubmitting) return;
+  const formData = new FormData();
+  formData.append("duration_ms", "0");
+  formData.append("question_id", question.id);
+  formData.append("skipped", "true");
+
+  const res = await fetch(
+    `/api/sessions/${sessionId}/questions/${questionNumber}/voice-answer`,
+    { method: "POST", body: formData }
+  );
+  const data = await res.json();
+  onSubmit({ voice_result: data });
+}
 
   const minutes = Math.floor(secondsLeft / 60);
   const seconds = secondsLeft % 60;
@@ -517,8 +532,8 @@ export default function VoiceRecorder({ question, onSubmit, isSubmitting = false
       )}
 
       <div className="flex flex-col-reverse sm:flex-row gap-3 pt-1">
-        <Button variant="secondary" onClick={() => onSubmit({ skipped: true })} disabled={isSubmitting} className="w-full sm:w-auto">
-          Skip
+        <Button variant="secondary" onClick={handleSkip} disabled={isSubmitting} className="w-full sm:w-auto">
+         Skip
         </Button>
         <Button
           onClick={handleSubmit}

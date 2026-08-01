@@ -53,13 +53,7 @@ export default function AssessmentsPage() {
     );
   }
 
-  const tableHeaders = [
-    "Title",
-    "Time Limit (min)",
-    "Question Set ID",
-    "ID",
-    "Actions",
-  ];
+  const tableHeaders = ["Title", "Time Limit (min)", "Question Set ID", "ID", "Candidates"];
 
   const tableRows = assessments.map((a) => [
     a.title,
