@@ -53,13 +53,16 @@ export default function AssessmentsPage() {
     );
   }
 
-  const tableHeaders = ["Title", "Time Limit (min)", "Question Set ID", "ID"];
+  const tableHeaders = ["Title", "Time Limit (min)", "Question Set ID", "ID", "Candidates"];
 
   const tableRows = assessments.map((a) => [
     a.title,
     a.time_limit_min ?? "—",
     a.question_set_id,
     <span key={a.id} className="text-xs text-gray-400 font-mono">{a.id.slice(0, 8)}…</span>,
+    <Link key={`cand-${a.id}`} href={`/admin/assessments/${a.id}/invitations`}>
+      <Button variant="secondary" className="text-xs px-2.5 py-1">View Candidates</Button>
+    </Link>,
   ]);
 
   return (
