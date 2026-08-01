@@ -280,34 +280,20 @@ async def pick_question(db, session: dict, state: dict) -> dict:
                 session,
                 state,
             )
-        '''
-        pc["converged"] = True
-        pc["converged_reason"] = "max_questions"
-        state["active_index"] += 1
-        return await pick_question(db, session, state)
-        '''
+      
     # 5. Lock in the question state for the upcoming grade cycle
     state["current_question"] = q
     q_num = state.get("question_number", 0) + 1
     state["question_number"] = q_num
     
-    # 6. Emit sanitized payload to frontend
-    public_question = q.copy()
-
-    for k in _ANSWER_KEYS:
-        public_question.pop(k, None)
-
-    state["_emit"] = public_question
-    state["_emit"]["question_number"] = q_num
-  
-    '''
+    # 6. Emit sanitized payload to frontend    
     state["_emit"] = {
         "question_number": q_num,
         "body": q.get("body"),
         "tool_type": q.get("tool_type"),
         "payload": _public_payload(q.get("payload"))
     }
-    '''
+    
     return state
 
 

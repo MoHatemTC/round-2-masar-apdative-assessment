@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
-from app.agent.adaptive_loop import run_turn, check_convergence, finalize
+from app.agent.adaptive_loop import run_turn, check_convergence, finalize, _public_payload
 
 @pytest.fixture
 def mock_db():
@@ -130,3 +130,30 @@ def test_infinite_loop_protection():
             raise Exception("Maximum session turns exceeded.")
             
     assert "Maximum session turns exceeded" in str(excinfo.value)
+
+def test_public_payload_hides_answer_keys():
+    payload = {
+        "choices": [
+            {"id": "A", "text": "10"},
+            {"id": "B", "text": "20"},
+        ],
+        "correct_id": "B",
+        "answer_key": "B",
+        "explanation": "Because...",
+        "expected_output": "20",
+        "test_cases": [{"input": "secret"}],
+        "public_test_cases": [{"input": "visible"}],
+    }
+
+    public = _public_payload(payload)
+
+    assert "correct_id" not in public
+    assert "answer_key" not in public
+    assert "expected_output" not in public
+    assert "explanation" not in public
+
+    # Hidden grading tests should be replaced with public ones
+    assert public["test_cases"] == payload["public_test_cases"]
+
+    # Internal field should not be exposed
+    assert "public_test_cases" not in public
