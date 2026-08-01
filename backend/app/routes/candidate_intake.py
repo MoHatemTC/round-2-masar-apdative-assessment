@@ -95,26 +95,25 @@ def _validate_self_ratings(raw) -> dict[str, int]:
 
 @router.post("/session/start")
 async def start_session(body: dict = Body(...)):
-    """Create a session for a candidate taking an assessment.
-
-    Body: `{assessment_id: str, candidate_name?: str, candidate_email?: str, cv_json?: dict}`.
-
-    The session is created in status `identity` (pre-intake). Self-ratings aren't collected here —
-    call `POST /session/{session_id}/intake` next. Returns `{"session_id": str}`.
-    """
     assessment_id = _require_str(body.get("assessment_id"), "assessment_id")
+    token = body.get("token")
 
     db = await get_db()
 
-    # Fail fast on a bad assessment_id rather than creating a session that can never be completed.
     found = await db.table("assessments").select("id").eq("id", assessment_id).execute()
     if not found.data:
         raise HTTPException(status_code=404, detail=f"assessment '{assessment_id}' not found.")
 
+    candidate_email = body.get("candidate_email")
+    if token:
+        inv_resp = await db.table("invitations").select("candidate_email").eq("token", token).execute()
+        if inv_resp.data:
+            candidate_email = inv_resp.data[0]["candidate_email"]
+
     row = {
         "assessment_id": assessment_id,
         "candidate_name": body.get("candidate_name"),
-        "candidate_email": body.get("candidate_email"),
+        "candidate_email": candidate_email,
         "cv_json": body.get("cv_json"),
         "intake_answers": {},
         "status": "identity",
@@ -192,24 +191,66 @@ async def submit_intake(session_id: str, body: dict = Body(...)):
     return {"session_id": session_id, "self_ratings": self_ratings, "priors": priors}
 
 
+# @router.get("/assessments/by-token/{share_token}")
+# async def get_assessment_by_token(share_token: str):
+#     """Candidate-facing, read-only: resolve a share link's token into what the entry flow needs —
+#     the assessment id/title and the competencies to self-rate. The token itself is the credential
+#     (same idea as any unauthenticated share link), so this deliberately requires no auth. This is
+#     separate from admin.py's `/assessments` CRUD routes, which are the admin-facing management
+#     surface for the same table.
+#     """
+#     db = await get_db()
+
+#     found = await db.table("assessments").select("*").eq("share_token", share_token).execute()
+#     if not found.data:
+#         raise HTTPException(status_code=404, detail="This assessment link is invalid or has expired.")
+#     assessment = found.data[0]
+
+#     if not assessment.get("is_published"):
+#         raise HTTPException(status_code=404, detail="This assessment is not currently open.")
+
+#     competency_ids = assessment.get("competency_ids") or []
+#     competencies = []
+#     if competency_ids:
+#         comp_resp = await db.table("competencies").select("id,name,code").in_("id", competency_ids).execute()
+#         competencies = [
+#             {"id": c["id"], "name": c.get("name") or c.get("code")} for c in comp_resp.data
+#         ]
+
+#     return {
+#         "assessment_id": assessment["id"],
+#         "title": assessment["title"],
+#         "competencies": competencies,
+#     }
 @router.get("/assessments/by-token/{share_token}")
 async def get_assessment_by_token(share_token: str):
-    """Candidate-facing, read-only: resolve a share link's token into what the entry flow needs —
-    the assessment id/title and the competencies to self-rate. The token itself is the credential
-    (same idea as any unauthenticated share link), so this deliberately requires no auth. This is
-    separate from admin.py's `/assessments` CRUD routes, which are the admin-facing management
-    surface for the same table.
+    """
+    Candidate-facing, read-only: resolve an invitation token into what the entry flow needs.
     """
     db = await get_db()
 
-    found = await db.table("assessments").select("*").eq("share_token", share_token).execute()
-    if not found.data:
+    # 1. Find the invitation using the token
+    invitation_resp = await db.table("invitations").select("assessment_id").eq("token", share_token).execute()
+
+    if not invitation_resp.data:
         raise HTTPException(status_code=404, detail="This assessment link is invalid or has expired.")
+
+    assessment_id = invitation_resp.data[0]["assessment_id"]
+
+    # 2. Fetch the corresponding assessment data
+    found = await db.table("assessments").select("*").eq("id", assessment_id).execute()
+
+    if not found.data:
+        raise HTTPException(status_code=404, detail="The linked assessment no longer exists.")
+
     assessment = found.data[0]
 
-    if not assessment.get("is_published"):
+    # Optional: If you haven't added an 'is_published' column to your assessments table yet,
+    # you may need to comment these two lines out to prevent a 500 error!
+    if assessment.get("is_published") is False:
         raise HTTPException(status_code=404, detail="This assessment is not currently open.")
 
+    # 3. Fetch the competencies
     competency_ids = assessment.get("competency_ids") or []
     competencies = []
     if competency_ids:

@@ -1,131 +1,120 @@
-"""
-llm.py — the single gateway for all LLM calls in this codebase.
-
-No other module may call the LLM client directly. Every call goes through retries with
-exponential backoff, a capped max_tokens, and is logged to ai_logs.
-"""
 from __future__ import annotations
-
-import json
 import os
 import asyncio
 import logging
 from openai import AsyncOpenAI, APIError, APITimeoutError
-
 from app.db import get_db
 
 logger = logging.getLogger(__name__)
 
-_client = AsyncOpenAI(
-    base_url=os.environ["LLM_BASE_URL"],
-    api_key=os.environ["LLM_API_KEY"],
-)
+MAX_TOKENS = 2000
+MAX_RETRIES = 3
+BASE_BACKOFF_SECONDS = 1.0
+VALID_KINDS = {"personalize", "grade", "cv_estimate", "stt", "generate"}
 
-MODEL = os.environ.get("LLM_MODEL", "kimi-k2.5")
+_client: AsyncOpenAI | None = None
+_stt_client: AsyncOpenAI | None = None
+
+
+def _get_client() -> AsyncOpenAI | None:
+    """Lazily build the grading client (Gemini). Returns None if credentials
+    aren't configured, so callers degrade gracefully instead of crashing the
+    whole module at import time.
+
+    Timeout set to 120s: grading prompts can legitimately take longer than
+    30s to generate on a slower/reasoning-heavy model, and killing the
+    request mid-generation just guarantees a retry (or, after 3, a None
+    score) instead of the answer we were already about to get.
+    """
+    global _client
+    if _client is None:
+        base_url = os.environ.get("LLM_BASE_URL")
+        api_key = os.environ.get("LLM_API_KEY")
+        if not base_url or not api_key:
+            return None
+        _client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=120.0)
+    return _client
+
+
+def _get_stt_client() -> AsyncOpenAI | None:
+    """Lazily build the STT client (Groq), separate from grading per the env split.
+    Returns None if credentials aren't configured."""
+    global _stt_client
+    if _stt_client is None:
+        base_url = os.environ.get("STT_BASE_URL")
+        api_key = os.environ.get("STT_API_KEY")
+        if not base_url or not api_key:
+            return None
+        _stt_client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=60.0)
+    return _stt_client
+
+
+MODEL = os.environ.get("LLM_MODEL", "")
+STT_MODEL = os.environ.get("STT_MODEL", "")
+
 MAX_TOKENS = 2000
 MAX_RETRIES = 3
 BASE_BACKOFF_SECONDS = 1.0
 
-# Must match the `kind` values allowed by the ai_logs table.
 VALID_KINDS = {"personalize", "grade", "cv_estimate", "stt", "generate"}
 
 
-async def call_llm(prompt: str, *, kind: str, session_id: str | None = None) -> dict:
-    """
-    Call the LLM with retries + exponential backoff. Logs the final outcome to ai_logs.
-
-    `kind` must be one of VALID_KINDS (matches the ai_logs.kind column's expected values).
-    `session_id` is optional — pass it when the call happens within a candidate session,
-    so the log row can be traced back to that session.
-
-    Returns: {"success": bool, "text": str | None, "error": str | None}
-    Never raises — callers (like grade_answer) must be able to degrade gracefully.
-    A failure to WRITE the log (separate from a failure to call the LLM) is also
-    swallowed, so telemetry can never take down grading.
-    """
+async def call_llm(prompt: str, *, kind: str, session_id: str | None = None, max_tokens: int | None = None) -> dict:
     if kind not in VALID_KINDS:
         raise ValueError(f"Invalid kind {kind!r}. Must be one of {VALID_KINDS}")
 
-    last_error = None
+    client = _get_client()
+    if client is None:
+        logger.warning("LLM call skipped — LLM_BASE_URL/LLM_API_KEY not configured.")
+        return {"success": False, "text": None, "error": "LLM is not configured."}
 
+    last_error = None
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            response = await _client.chat.completions.create(
+            response = await client.chat.completions.create(
                 model=MODEL,
                 messages=[{"role": "user", "content": prompt}],
-                max_completion_tokens=MAX_TOKENS,
+                max_completion_tokens=max_tokens if max_tokens is not None else MAX_TOKENS,
             )
             response_text = response.choices[0].message.content
             await _safe_log(session_id=session_id, kind=kind, prompt=prompt, response=response_text)
             return {"success": True, "text": response_text, "error": None}
-
         except (APIError, APITimeoutError) as e:
             last_error = str(e)
             logger.warning(f"LLM call failed (attempt {attempt}/{MAX_RETRIES}): {last_error}")
             if attempt < MAX_RETRIES:
                 await asyncio.sleep(BASE_BACKOFF_SECONDS * (2 ** (attempt - 1)))
 
-    # All retries exhausted — log the failure too (response left null), then return gracefully.
     await _safe_log(session_id=session_id, kind=kind, prompt=prompt, response=None)
     return {"success": False, "text": None, "error": last_error}
 
-async def generate_fallback_question(
-    competency_id: str,
-    difficulty: int,
-    session_id: str | None = None,
-) -> dict:
-    """
-    Generate a fallback open-ended question when the question bank
-    has no remaining questions for this competency.
-    """
 
-    prompt = f"""
-Generate ONE open-ended interview question.
+async def call_stt(audio_bytes: bytes, filename: str, *, session_id: str | None = None) -> dict:
+    client = _get_stt_client()
+    if client is None:
+        logger.warning("STT call skipped — STT_BASE_URL/STT_API_KEY not configured.")
+        return {"success": False, "text": None, "error": "STT is not configured."}
 
-Requirements:
-- Competency: {competency_id}
-- Difficulty: {difficulty}/5
-- Tool type must be open_ended.
-- Do NOT generate any answer.
-- Return ONLY valid JSON.
+    last_error = None
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            response = await client.audio.transcriptions.create(
+                model=STT_MODEL,
+                file=(filename, audio_bytes),
+            )
+            response_text = response.text
+            await _safe_log(session_id=session_id, kind="stt", prompt="[audio]", response=response_text)
+            return {"success": True, "text": response_text, "error": None}
+        except (APIError, APITimeoutError) as e:
+            last_error = str(e)
+            logger.warning(f"STT call failed (attempt {attempt}/{MAX_RETRIES}): {last_error}")
+            if attempt < MAX_RETRIES:
+                await asyncio.sleep(BASE_BACKOFF_SECONDS * (2 ** (attempt - 1)))
 
-Format:
-
-{{
-    "body": "...",
-    "tool_type": "open_ended",
-    "difficulty": {difficulty},
-    "competency_id": "{competency_id}"
-}}
-"""
-
-    result = await call_llm(
-        prompt,
-        kind="generate",
-        session_id=session_id,
-    )
-
-    if not result["success"]:
-        raise RuntimeError(result["error"])
-
-    try:
-        question = json.loads(result["text"])
-
-    except json.JSONDecodeError:
-        raise ValueError("Invalid JSON returned from LLM")
-
-    if question.get("tool_type") != "open_ended":
-        raise ValueError("Fallback question must be open-ended")
-
-    if not isinstance(question.get("body"), str) or not question["body"].strip():
-        raise ValueError("Fallback question missing body")
-
-    return question
-        
-   
+    await _safe_log(session_id=session_id, kind="stt", prompt="[audio]", response=None)
+    return {"success": False, "text": None, "error": last_error}
 
 async def _safe_log(*, session_id: str | None, kind: str, prompt: str, response: str | None) -> None:
-    """Wraps _log_to_ai_logs so a logging/DB failure can never crash call_llm's caller."""
     try:
         await _log_to_ai_logs(session_id=session_id, kind=kind, prompt=prompt, response=response)
     except Exception as e:
@@ -133,7 +122,6 @@ async def _safe_log(*, session_id: str | None, kind: str, prompt: str, response:
 
 
 async def _log_to_ai_logs(*, session_id: str | None, kind: str, prompt: str, response: str | None) -> None:
-    """Insert one row into ai_logs, matching its real schema exactly."""
     db = await get_db()
     await db.table("ai_logs").insert({
         "session_id": session_id,

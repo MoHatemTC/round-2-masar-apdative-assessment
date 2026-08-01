@@ -13,6 +13,7 @@ import {
   type AssessmentInfo,
 } from "@/lib/api";
 import { getAnswerComponent } from "./tools/registry";
+import CompletionReport from "./CompletionReport";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import RatingScale from "@/components/ui/RatingScale";
@@ -61,7 +62,7 @@ export default function AssessFlow() {
     setIntakeSubmitting(true);
     setIntakeError(null);
     try {
-      const { session_id } = await startSession(assessment.assessment_id);
+      const { session_id } = await startSession(assessment.assessment_id, token);
       setSessionId(session_id);
       setStep("intake");
     } catch (err) {
@@ -289,6 +290,12 @@ export default function AssessFlow() {
             Your report is being generated and will be available shortly.
           </p>
         </Card>
+        <CompletionReport
+          overall_pct={done.overall_pct ?? 0}
+          level_label={done.level_label ?? ""}
+          message={done.message}
+          has_low_confidence={done.has_low_confidence}
+        />
       )}
     </main>
   );

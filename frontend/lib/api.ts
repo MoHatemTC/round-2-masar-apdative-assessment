@@ -59,6 +59,7 @@ export interface AssessmentCreate {
 
 export interface Invitation {
   id: string;
+  session_id: string | null;
   candidate_email: string;
   status: "taken" | "in_progress" | "not_taken";
   invited_at: string;
@@ -77,6 +78,35 @@ export interface SandboxRunResult {
   }[];
 }
 
+
+// ---- Report types ----
+
+export interface CompetencyResult {
+  competency_id: string;
+  level: number;
+  confidence: number;
+  questions_asked: number;
+  converged_reason: string;
+}
+
+export interface AnswerDetail {
+  question_number: number;
+  question_body: string;
+  tool_type: string;
+  score: number;
+  rationale: string;
+  answer_text: string;
+  flagged: boolean;
+}
+
+export interface SessionReport {
+  session_id: string;
+  overall_pct: number;
+  level_label: string;
+  has_low_confidence: boolean;
+  competency_results: CompetencyResult[];
+  answers: AnswerDetail[];
+}
 
 async function apiRequest<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -108,10 +138,13 @@ export async function getAssessmentByToken(token: string): Promise<AssessmentInf
   return apiRequest(`/assessments/by-token/${encodeURIComponent(token)}`);
 }
 
-export async function startSession(assessmentId: string): Promise<{ session_id: string }> {
+export async function startSession(assessmentId: string, token?: string): Promise<{ session_id: string }> {
   return apiRequest("/session/start", {
     method: "POST",
-    body: JSON.stringify({ assessment_id: assessmentId }),
+    body: JSON.stringify({
+      assessment_id: assessmentId,
+      token: token
+    }),
   });
 }
 
@@ -159,8 +192,8 @@ export async function turn(params: {
 // ---- Report ----
 // NOTE: only an admin-facing report route exists (/admin/sessions/{id}/report) as of this
 // writing. No candidate-facing /report/{id} route exists yet.
-export async function getReport(sessionId: string): Promise<Record<string, unknown>> {
-  return apiRequest(`/admin/sessions/${sessionId}/report`);
+export async function getReport(sessionId: string): Promise<SessionReport> {
+  return apiRequest<SessionReport>(`/admin/sessions/${sessionId}/report`);
 }
 
 export async function submitAnswer(params: {
