@@ -175,31 +175,33 @@ async def pick_question(db, session: dict, state: dict) -> dict:
 
 
 async def grade(db, session: dict, state: dict, tool_result: dict) -> None:
-    """Grade the answer to state['current_question'] → 0–5 + rationale; write to `answers`."""
     q = state.get("current_question", {})
     tool_type = q.get("tool_type")
 
-    # Grade the answer defensively using the teammate's contract[cite: 2]
-    result = await grade_answer(tool_type, q, tool_result, session["id"])
+    if isinstance(tool_result, dict) and tool_result.get("pregraded"):
+        result = {
+            "score": tool_result.get("score"),
+            "rationale": tool_result.get("rationale"),
+            "flagged": tool_result.get("flagged", False),
+        }
+    else:
+        result = await grade_answer(tool_type, q, tool_result, session["id"])
 
-    # Persist the answer with the unique resumability constraint applied in DB migration[cite: 2]
-    answer_row = {
-        "session_id": session["id"],
-        "question_number": state.get("question_number"),
-        "question_id": q.get("id"),
-        "question_body": q.get("body"),
-        "competency_id": q.get("competency_id"),
-        "tool_type": q.get("tool_type"),
-        "score": result.get("score"),
-        "rationale": result.get("rationale"),
-        "answer_text": str(tool_result) if isinstance(tool_result, dict) else str(tool_result)
-    }
-    # Make grading idempotent: if a retry hits this, it safely overwrites the same score
-    await db.table("answers").upsert(answer_row, on_conflict="session_id,question_number").execute()
+        answer_row = {
+            "session_id": session["id"],
+            "question_number": state.get("question_number"),
+            "question_id": q.get("id"),
+            "question_body": q.get("body"),
+            "competency_id": q.get("competency_id"),
+            "tool_type": q.get("tool_type"),
+            "score": result.get("score"),
+            "rationale": result.get("rationale"),
+            "answer_text": str(tool_result) if isinstance(tool_result, dict) else str(tool_result)
+        }
+        await db.table("answers").upsert(answer_row, on_conflict="session_id,question_number").execute()
 
     state["_grading"] = result
 
-    # Update tracking for used questions and asked tool types[cite: 2]
     cid = q.get("competency_id")
     pc = state["per_competency"][cid]
     pc["used_ids"].append(str(q.get("id")))
@@ -208,7 +210,6 @@ async def grade(db, session: dict, state: dict, tool_result: dict) -> None:
     t_types = pc.get("asked_types", {})
     t_types[tool_type] = t_types.get(tool_type, 0) + 1
     pc["asked_types"] = t_types
-
 
 async def estimate(db, session: dict, state: dict) -> None:
     """Bayesian update of the active competency's 1–5 posterior from the latest grade."""
