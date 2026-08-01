@@ -165,6 +165,7 @@ async def pick_question(db, session: dict, state: dict) -> dict:
 
     # 6. Emit sanitized payload to frontend
     state["_emit"] = {
+        "id": q.get("id"),
         "question_number": q_num,
         "body": q.get("body"),
         "tool_type": q.get("tool_type"),
