@@ -76,7 +76,7 @@ async def submit_voice_answer(
                 "transcript": None,
                 "score": 0.0,
                 "rationale": "Skipped by the candidate.",
-                "flagged": True,
+                "flagged": False,
             }).execute()
             return {"status": "submitted", "answer": claimed.data[0]}
         except Exception as e:
@@ -127,7 +127,7 @@ async def submit_voice_answer(
                 "transcript": None,
                 "score": 0.0,
                 "rationale": "No audio and no typed answer provided — treated as skipped.",
-                "flagged": True,
+                "flagged": False,
                 "skipped": True,
             })
             if claimed is None:
