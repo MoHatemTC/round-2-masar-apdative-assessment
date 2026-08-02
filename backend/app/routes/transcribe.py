@@ -55,6 +55,7 @@ async def submit_voice_answer(
     question_id: str = Form(...),
     audio: UploadFile | None = File(None),
     typed_answer: str | None = Form(None),
+    skipped: bool = Form(False),
 ):
     db = await get_db()
 
@@ -66,11 +67,34 @@ async def submit_voice_answer(
     if existing_row:
         return {"status": "already_submitted", "answer": existing_row}
 
+    if skipped:
+        try:
+            claimed = await db.table("answers").insert({
+                "session_id": session_id,
+                "question_number": question_number,
+                "question_id": question_id,
+                "tool_type": "voice",
+                "skipped": True,
+                "answer_text": None,
+                "audio_url": None,
+                "transcript": None,
+                "score": 0.0,
+                "rationale": "Skipped by the candidate.",
+                "flagged": True,
+            }).execute()
+            return {"status": "submitted", "answer": claimed.data[0]}
+        except Exception as e:
+            logger.warning(f"skip claim_row insert failed: {type(e).__name__}: {e}")
+            existing = await db.table("answers").select("*").eq(
+                "session_id", session_id
+            ).eq("question_number", question_number).maybe_single().execute()
+            return {"status": "already_submitted", "answer": _row(existing)}
+
     question_resp = await db.table("question_bank").select("*").eq(
         "id", question_id
     ).maybe_single().execute()
     question = _row(question_resp) or {}
-
+    
     base_row = {
         "session_id": session_id,
         "question_number": question_number,
