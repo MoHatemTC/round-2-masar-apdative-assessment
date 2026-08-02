@@ -166,23 +166,7 @@ class FakeQuery:
     # -----------------------------------------------------
 
     def _rows(self) -> list[dict]:
-        """
-        Return the backing table, creating it if needed.
-        """
-        return self._tables.setdefault(
-            self._table_name,
-            [],
-        )
-
-
-    def _matches(
-        self,
-        row: dict,
-    ) -> bool:
-        """
-        Check whether a row satisfies all filters.
-        Supports both eq() and in_().
-        """
+        return self._tables.setdefault(self._table_name, [])
 
         def one(field: str, value: Any) -> bool:
             if isinstance(value, set):
@@ -397,8 +381,6 @@ def client(
         "get_db",
         _fake_get_db,
     )
-
-
 
     app = FastAPI()
     app.include_router(candidate_intake.router)
