@@ -93,7 +93,7 @@ async def _upload_to_storage(db: AsyncClient, path: str, data: bytes) -> str:
     await db.storage.from_(STORAGE_BUCKET).upload(
         path,
         data,
-        file_options={"content-type": "image/jpeg", "upsert": "false"},
+        file_options={"content-type": "image/jpeg", "upsert": "true"},
     )
     return path
 

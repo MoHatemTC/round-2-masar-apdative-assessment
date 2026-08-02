@@ -5,8 +5,8 @@
 //   Step 2 (if accepted): Reference photo capture
 // On completion, the candidate is routed to /assess.
 //
-// Expects `?session_id=<UUID>` in the URL (the intake flow should link here
-// with the session id it just created).
+// Expects `?session_id=<UUID>&token=<share_token>` in the URL (the intake
+// flow should link here with both the session id and the original share token).
 // -----------------------------------------------------------------------------
 
 "use client";
@@ -23,6 +23,7 @@ function ProctoringConsentInner() {
   const router = useRouter();
   const params = useSearchParams();
   const sessionId = params.get("session_id") ?? "";
+  const token = params.get("token") ?? "";
 
   const [step, setStep] = useState<Step>("consent");
   const [error, setError] = useState<string>("");
@@ -51,11 +52,11 @@ function ProctoringConsentInner() {
     } catch {
       // best-effort; do not block the candidate
     }
-    router.push(`/assess?session_id=${encodeURIComponent(sessionId)}`);
+    router.push(`/assess?token=${encodeURIComponent(token)}`);
   }
 
   function handleReferenceConfirmed() {
-    router.push(`/assess?session_id=${encodeURIComponent(sessionId)}`);
+    router.push(`/assess?token=${encodeURIComponent(token)}`);
   }
 
   return (
