@@ -165,16 +165,24 @@ export default function VoiceRecorder({ question, onSubmit, isSubmitting = false
 
     if (finalBlobRef.current) {
       formData.append("audio", finalBlobRef.current, "answer.webm");
-    } else {
+    } 
+    else {
       // No mic / no recording, but the candidate typed something — this hits
       // the backend's no-audio fallback path (flagged, but not blocking).
       formData.append("typed_answer", typedFallback);
     }
 
-    const res = await fetch(
-        `/api/sessions/${sessionId}/questions/${questionNumber}/voice-answer`,
-        { method: "POST", body: formData }
-);
+     const res = await fetch(
+      `/api/sessions/${sessionId}/questions/${questionNumber}/voice-answer`,
+       { method: "POST", body: formData }
+    );
+
+     if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      setRecordError(err.detail ?? "Submission failed — please try again.");
+      return; // stay on this question; the slot was never claimed
+}
+
     const data = await res.json();
     onSubmit({ pregraded: true });
   }
