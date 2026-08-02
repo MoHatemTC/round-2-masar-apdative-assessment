@@ -152,6 +152,21 @@ export default function VoiceRecorder({ question, onSubmit, isSubmitting = false
     chunksRef.current = [];
   }
 
+async function postVoiceAnswer(formData: FormData): Promise<{ ok: boolean; detail: string }> {
+  const res = await fetch(
+    `/api/sessions/${sessionId}/questions/${questionNumber}/voice-answer`,
+    { method: "POST", body: formData }
+  );
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    return { ok: false, detail: err.detail ?? "" };
+  }
+
+  await res.json();
+  return { ok: true, detail: "" };
+}
+
 async function submitWhatWeHave(isAutoSubmit = false) {
   if (hasSubmittedRef.current) return;
   hasSubmittedRef.current = true;
@@ -171,23 +186,17 @@ async function submitWhatWeHave(isAutoSubmit = false) {
     formData.append("typed_answer", typedFallback);
   }
 
-  const res = await fetch(
-    `/api/sessions/${sessionId}/questions/${questionNumber}/voice-answer`,
-    { method: "POST", body: formData }
-  );
-
-  if (!res.ok) {
+  const result = await postVoiceAnswer(formData);
+  if (!result.ok) {
     if (isAutoSubmit) {
       onSubmit({ skipped: true });
       return;
     }
     hasSubmittedRef.current = false;
-    const err = await res.json().catch(() => ({}));
-    setRecordError(err.detail ?? "Submission failed — please try again.");
+    setRecordError(result.detail || "Submission failed — please try again.");
     return;
   }
 
-  await res.json();
   onSubmit({ pregraded: true });
 }
 
@@ -205,21 +214,16 @@ async function submitWhatWeHave(isAutoSubmit = false) {
   formData.append("question_id", question.id);
   formData.append("skipped", "true");
 
-  const res = await fetch(
-    `/api/sessions/${sessionId}/questions/${questionNumber}/voice-answer`,
-    { method: "POST", body: formData }
-  );
-
-  if (!res.ok) {
+  const result = await postVoiceAnswer(formData);
+  if (!result.ok) {
     hasSubmittedRef.current = false;
-    const err = await res.json().catch(() => ({}));
-    setRecordError(err.detail ?? "Skip failed — please try again.");
+    setRecordError(result.detail || "Skip failed — please try again.");
     return;
   }
 
-  await res.json();
   onSubmit({ pregraded: true });
 }
+
   const minutes = Math.floor(secondsLeft / 60);
   const seconds = secondsLeft % 60;
   const isUrgent = secondsLeft <= 10;
@@ -260,20 +264,34 @@ async function submitWhatWeHave(isAutoSubmit = false) {
 
       {recordState !== "no_mic" ? (
         <div className="mb-5 flex items-center gap-3">
-          {recordState === "idle" && (
-            <Button variant="secondary" onClick={startRecording} disabled={isSubmitting}>
+            {recordState === "idle" && (
+            <Button
+              variant="secondary"
+              onClick={startRecording}
+              disabled={isSubmitting}
+              className="!bg-[#dc2626] !text-white !border-[#dc2626] hover:!bg-[#b91c1c]"
+            >
               <Mic className="w-4 h-4 mr-1.5" /> Record answer
             </Button>
           )}
           {recordState === "recording" && (
-            <Button variant="primary" onClick={stopRecording}>
-              <Square className="w-4 h-4 mr-1.5" /> Stop
+            <Button
+              variant="primary"
+              onClick={stopRecording}
+              className="!bg-[#dc2626] !text-white hover:!bg-[#b91c1c]"
+            >
+              <Square className="w-4 h-4 mr-1.5" fill="white" /> Stop
             </Button>
           )}
           {recordState === "recorded" && (
             <>
               <span className="text-sm text-muted-foreground">Recording ready.</span>
-              <Button variant="secondary" onClick={handleReRecord} disabled={isSubmitting}>
+              <Button
+                variant="secondary"
+                onClick={handleReRecord}
+                disabled={isSubmitting}
+                className="!bg-[#dc2626] !text-white !border-[#dc2626] hover:!bg-[#b91c1c]"
+              >
                 <RotateCcw className="w-4 h-4 mr-1.5" /> Re-record
               </Button>
             </>
