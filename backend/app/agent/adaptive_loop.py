@@ -180,11 +180,17 @@ async def grade(db, session: dict, state: dict, tool_result: dict) -> None:
     q = state.get("current_question", {})
     tool_type = q.get("tool_type")
 
-    if isinstance(tool_result, dict) and tool_result.get("pregraded"):
+    if tool_type == "voice" and isinstance(tool_result, dict) and tool_result.get("pregraded"):
+        # /voice-answer already graded and persisted this — re-read our own stored,
+        # trusted row rather than trusting anything the client sent.
+        existing = await db.table("answers").select("score,rationale,flagged").eq(
+            "session_id", session["id"]
+        ).eq("question_number", state.get("question_number")).maybe_single().execute()
+        row = existing.data if existing is not None else None
         result = {
-            "score": tool_result.get("score"),
-            "rationale": tool_result.get("rationale"),
-            "flagged": tool_result.get("flagged", False),
+            "score": row.get("score") if row else None,
+            "rationale": row.get("rationale") if row else "Pregraded row not found — flagged for review.",
+            "flagged": row.get("flagged", True) if row else True,
         }
     else:
         result = await grade_answer(tool_type, q, tool_result, session["id"])
@@ -213,42 +219,7 @@ async def grade(db, session: dict, state: dict, tool_result: dict) -> None:
     t_types[tool_type] = t_types.get(tool_type, 0) + 1
     pc["asked_types"] = t_types
 
-# async def estimate(db, session: dict, state: dict) -> None:
-#     """Bayesian update of the active competency's 1–5 posterior from the latest grade."""
-#     grading = state.get("_grading", {})
-#     q = state.get("current_question", {})
 
-#     # Defensive programming: Do not estimate if grading failed[cite: 2]
-#     if grading.get("flagged", False) or grading.get("score") is None:
-#         return
-
-#     cid = q.get("competency_id")
-#     pc = state["per_competency"][cid]
-
-#     # 1. Map difficulty to the 1-5 scale[cite: 1]
-#     diff_raw = q.get("difficulty", "medium")
-#     diff_val = 3
-#     if isinstance(diff_raw, str):
-#         d = diff_raw.lower()
-#         if d == "easy": diff_val = 2
-#         elif d == "hard": diff_val = 4
-#     elif isinstance(diff_raw, (int, float)):
-#         diff_val = round(diff_raw)
-
-#     # 2. Update posterior deterministically without LLM calls[cite: 1]
-#     res = estimate_level(pc["posterior"], grading["score"], diff_val)
-
-#     # 3. Apply results
-#     pc["posterior"] = res["posterior"]
-#     pc["level"] = res["level"]
-
-#     # 4. Cap confidence ceiling to prevent one answer from triggering an early stop[cite: 1]
-#     raw_conf = res.get("confidence", 0.0)
-#     ceiling = _confidence_ceiling(pc["questions_asked"])
-#     pc["confidence"] = min(raw_conf, ceiling)
-
-#     # 5. Append history for stable-convergence check
-#     pc["level_history"].append(pc["level"])
 async def estimate(db, session: dict, state: dict) -> None:
     """Bayesian update of the active competency's 1–5 posterior from the latest grade."""
     grading = state.get("_grading", {})

@@ -11,7 +11,7 @@ export interface VoiceQuestion {
 }
 
 type SubmitResult =
-  | { pregraded: true; score: number | null; rationale: string | null; flagged: boolean }
+  | { pregraded: true }
   | { skipped: true }
   | { no_audio: true; typed_answer: string };
   
@@ -176,7 +176,7 @@ export default function VoiceRecorder({ question, onSubmit, isSubmitting = false
         { method: "POST", body: formData }
 );
     const data = await res.json();
-    onSubmit({ pregraded: true, score: data.answer?.score, rationale: data.answer?.rationale, flagged: data.answer?.flagged });
+    onSubmit({ pregraded: true });
   }
 
   async function handleSubmit() {
@@ -196,7 +196,7 @@ export default function VoiceRecorder({ question, onSubmit, isSubmitting = false
     { method: "POST", body: formData }
   );
   const data = await res.json();
-  onSubmit({ pregraded: true, score: data.answer?.score, rationale: data.answer?.rationale, flagged: data.answer?.flagged });
+  onSubmit({ pregraded: true });
 }
 
   const minutes = Math.floor(secondsLeft / 60);
