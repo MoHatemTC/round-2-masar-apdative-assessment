@@ -197,7 +197,9 @@ async function submitWhatWeHave(isAutoSubmit = false) {
   }
   
   async function handleSkip() {
-  if (isSubmitting) return;
+  if (isSubmitting || hasSubmittedRef.current) return;
+  hasSubmittedRef.current = true;
+
   const formData = new FormData();
   formData.append("duration_ms", "0");
   formData.append("question_id", question.id);
@@ -209,12 +211,13 @@ async function submitWhatWeHave(isAutoSubmit = false) {
   );
 
   if (!res.ok) {
+    hasSubmittedRef.current = false;
     const err = await res.json().catch(() => ({}));
     setRecordError(err.detail ?? "Skip failed — please try again.");
     return;
   }
 
-  const data = await res.json();
+  await res.json();
   onSubmit({ pregraded: true });
 }
   const minutes = Math.floor(secondsLeft / 60);
