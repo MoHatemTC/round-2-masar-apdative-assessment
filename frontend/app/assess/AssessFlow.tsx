@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import {
   turn,
   type ToolResult,
+  type Question,
   getAssessmentByToken,
   startSession,
   submitIntake,
@@ -34,7 +35,7 @@ export default function AssessFlow() {
   const [intakeError, setIntakeError] = useState<string | null>(null);
   const [intakeSubmitting, setIntakeSubmitting] = useState(false);
 
-  const [question, setQuestion] = useState<any>(null);
+  const [question, setQuestion] = useState<Question | null>(null);
   const [done, setDone] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loopError, setLoopError] = useState<string | null>(null);
@@ -116,7 +117,7 @@ export default function AssessFlow() {
         setQuestion(null);
         setStep("done");
       } else {
-        setQuestion(r.emit);
+        setQuestion(r.emit as Question);
       }
     } catch (err) {
       // Without this, a failed turn (network issue, or a not-yet-implemented backend route)
@@ -130,6 +131,9 @@ export default function AssessFlow() {
   }
 
   const AnswerComponent = question ? getAnswerComponent((question as any).tool_type) : null;
+
+  const allCompetenciesRated =
+  assessment?.competencies.every((c) => ratings[c.id] !== undefined) ?? false;
 
   if (step === "loading") {
     return (
@@ -164,6 +168,19 @@ export default function AssessFlow() {
             adaptive questions.
           </p>
           {intakeError && <p className="text-sm text-red-600">{intakeError}</p>}
+      
+          <div className="rounded-md bg-gray-100 dark:bg-neutral-800 p-4">
+            <h3 className="font-medium">Assessment Summary</h3>
+
+            <p className="mt-2 text-sm">
+              Competencies:
+              <strong> {assessment.competencies.length}</strong>
+            </p>
+
+            <p className="text-sm">
+              Adaptive questions based on your responses.
+            </p>
+          </div>
           <Button onClick={beginIntake} disabled={intakeSubmitting}>
             {intakeSubmitting ? "Starting…" : "Begin Assessment"}
           </Button>
@@ -202,7 +219,7 @@ export default function AssessFlow() {
             </label>
             <input
               type="file"
-              accept=".pdf,.txt"
+              accept=".pdf,.doc,.docx,.txt"
               disabled={cvUploading || intakeSubmitting}
               onChange={(e) => {
                 const file = e.target.files?.[0];
@@ -224,7 +241,10 @@ export default function AssessFlow() {
 
           {intakeError && <p className="text-sm text-red-600">{intakeError}</p>}
 
-          <Button onClick={submitIntakeAndBegin} disabled={intakeSubmitting}>
+          <Button
+            onClick={submitIntakeAndBegin}
+            disabled={!allCompetenciesRated || intakeSubmitting}
+          >
             {intakeSubmitting ? "Starting…" : "Continue to Assessment"}
           </Button>
         </Card>
@@ -257,6 +277,19 @@ export default function AssessFlow() {
         <p className="text-red-600">Unsupported question type: {(question as any).tool_type}</p>
       )}
       {done && (
+        <Card className="text-center py-8">
+          <h2 className="text-2xl font-semibold text-green-600">
+            Assessment Completed!
+          </h2>
+
+          <p className="mt-4 text-gray-600 dark:text-gray-400">
+            Thank you for completing the assessment.
+          </p>
+
+          <p className="mt-2 text-gray-600 dark:text-gray-400">
+            Your report is being generated and will be available shortly.
+          </p>
+        </Card>
         <CompletionReport
           overall_pct={done.overall_pct ?? 0}
           level_label={done.level_label ?? ""}

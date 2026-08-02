@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
-from app.agent.adaptive_loop import run_turn, check_convergence, finalize
+from app.agent.adaptive_loop import run_turn, check_convergence, finalize, _public_payload
 
 @pytest.fixture
 def mock_db():
@@ -130,3 +130,29 @@ def test_infinite_loop_protection():
             raise Exception("Maximum session turns exceeded.")
             
     assert "Maximum session turns exceeded" in str(excinfo.value)
+
+def test_public_payload_hides_answer_keys():
+    payload = {
+        "correct_id": "B",
+        "answer_key": "B",
+        "test_cases": [{"input": "secret"}],
+        "public_test_cases": [{"input": "visible"}],
+        "choices": [
+            {"id": "A"},
+            {"id": "B"},
+        ],
+    }
+
+    public = _public_payload(payload)
+
+    assert "correct_id" not in public
+    assert "answer_key" not in public
+
+    # public test cases become test_cases
+    assert public["test_cases"] == [{"input": "visible"}]
+
+    # internal field removed
+    assert "public_test_cases" not in public
+
+    # ordinary fields preserved
+    assert public["choices"] == payload["choices"]

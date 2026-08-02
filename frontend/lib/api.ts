@@ -296,3 +296,53 @@ export async function adminImportBank(
   });
 
 }
+
+export interface SendInvitationRequest {
+  assessment_id: string;
+  candidate_email: string;
+}
+
+export async function sendInvitation(payload: {
+    assessment_id: string;
+    candidate_email: string;
+}) {
+    return apiRequest("/admin/invitations", {
+        method: "POST",
+        body: JSON.stringify(payload),
+    });
+}
+
+export interface QuestionBrowserItem {
+  id: string;
+  source_ref: string;
+  text: string;
+  tool_type: string;
+  difficulty: number;
+  competency: {
+    code: string;
+    name: string;
+  };
+}
+
+export async function browseQuestions(filters?: {
+  tool_type?: string;
+  competency?: string;
+  difficulty?: number;
+}): Promise<QuestionBrowserItem[]> {
+  const params = new URLSearchParams();
+
+  if (filters?.tool_type)
+    params.append("tool_type", filters.tool_type);
+
+  if (filters?.competency)
+    params.append("competency", filters.competency);
+
+  if (filters?.difficulty)
+    params.append("difficulty", String(filters.difficulty));
+
+  const query = params.toString();
+
+  return apiRequest<QuestionBrowserItem[]>(
+    `/questions${query ? `?${query}` : ""}`
+  );
+}
