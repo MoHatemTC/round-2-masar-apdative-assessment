@@ -16,12 +16,17 @@ Fill in every TODO. Keep the golden rules:
 from __future__ import annotations
 import os
 import asyncio
-
-from app.services.selection import select_competency_question
-from app.services.grading import grade_answer
 from app.estimator.engine import estimate_level
 from app.estimator.contract import EstimatorInput
 from app.estimator.types import Difficulty
+from app.services.prior import compute_prior
+from app.services.question_bank import cv_estimate_levels
+from app.services.question_bank import personalize_question
+from app.services.llm import generate_fallback_question
+from app.schemas.question_types import validate_question_payload
+import logging
+import copy
+logger = logging.getLogger(__name__)
 
 # ── Tunable convergence knobs (start here; see ARCHITECTURE.md) ──────────────
 CONFIDENCE_TARGET = 0.90

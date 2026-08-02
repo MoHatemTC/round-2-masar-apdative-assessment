@@ -76,12 +76,11 @@ export default function VoiceRecorder({ question, onSubmit, isSubmitting = false
   checkExisting();
 }, [sessionId, questionNumber]);
   async function handleTimeUp() {
-    if (recordState === "recording") {
-      await stopRecordingAndWait();
-    }
-    await submitWhatWeHave();
+  if (recordState === "recording") {
+    await stopRecordingAndWait();
   }
-
+  await submitWhatWeHave(true);
+}
   async function startRecording() {
     setRecordError(null);
     try {
@@ -153,42 +152,44 @@ export default function VoiceRecorder({ question, onSubmit, isSubmitting = false
     chunksRef.current = [];
   }
 
-  async function submitWhatWeHave() {
-      if (hasSubmittedRef.current) return;
-      hasSubmittedRef.current = true;
-    // Nothing recorded and nothing typed → genuine skip, no network call needed.
-    if (!finalBlobRef.current && !typedFallback.trim()) {
+async function submitWhatWeHave(isAutoSubmit = false) {
+  if (hasSubmittedRef.current) return;
+  hasSubmittedRef.current = true;
+
+  if (!finalBlobRef.current && !typedFallback.trim()) {
+    onSubmit({ skipped: true });
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append("duration_ms", String(finalDurationRef.current));
+  formData.append("question_id", question.id);
+
+  if (finalBlobRef.current) {
+    formData.append("audio", finalBlobRef.current, "answer.webm");
+  } else {
+    formData.append("typed_answer", typedFallback);
+  }
+
+  const res = await fetch(
+    `/api/sessions/${sessionId}/questions/${questionNumber}/voice-answer`,
+    { method: "POST", body: formData }
+  );
+
+  if (!res.ok) {
+    if (isAutoSubmit) {
       onSubmit({ skipped: true });
       return;
     }
-
-    const formData = new FormData();
-    formData.append("duration_ms", String(finalDurationRef.current));
-    formData.append("question_id", question.id);
-
-    if (finalBlobRef.current) {
-      formData.append("audio", finalBlobRef.current, "answer.webm");
-    } 
-    else {
-      // No mic / no recording, but the candidate typed something — this hits
-      // the backend's no-audio fallback path (flagged, but not blocking).
-      formData.append("typed_answer", typedFallback);
-    }
-
-     const res = await fetch(
-      `/api/sessions/${sessionId}/questions/${questionNumber}/voice-answer`,
-       { method: "POST", body: formData }
-    );
-
-     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      setRecordError(err.detail ?? "Submission failed — please try again.");
-      return; // stay on this question; the slot was never claimed
-}
-
-    const data = await res.json();
-    onSubmit({ pregraded: true });
+    hasSubmittedRef.current = false;
+    const err = await res.json().catch(() => ({}));
+    setRecordError(err.detail ?? "Submission failed — please try again.");
+    return;
   }
+
+  await res.json();
+  onSubmit({ pregraded: true });
+}
 
   async function handleSubmit() {
     if (isSubmitting) return;
