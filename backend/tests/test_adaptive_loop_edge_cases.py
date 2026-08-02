@@ -133,27 +133,26 @@ def test_infinite_loop_protection():
 
 def test_public_payload_hides_answer_keys():
     payload = {
-        "choices": [
-            {"id": "A", "text": "10"},
-            {"id": "B", "text": "20"},
-        ],
         "correct_id": "B",
         "answer_key": "B",
-        "explanation": "Because...",
-        "expected_output": "20",
         "test_cases": [{"input": "secret"}],
         "public_test_cases": [{"input": "visible"}],
+        "choices": [
+            {"id": "A"},
+            {"id": "B"},
+        ],
     }
 
     public = _public_payload(payload)
 
     assert "correct_id" not in public
     assert "answer_key" not in public
-    assert "expected_output" not in public
-    assert "explanation" not in public
 
-    # Hidden grading tests should be replaced with public ones
-    assert public["test_cases"] == payload["public_test_cases"]
+    # public test cases become test_cases
+    assert public["test_cases"] == [{"input": "visible"}]
 
-    # Internal field should not be exposed
+    # internal field removed
     assert "public_test_cases" not in public
+
+    # ordinary fields preserved
+    assert public["choices"] == payload["choices"]

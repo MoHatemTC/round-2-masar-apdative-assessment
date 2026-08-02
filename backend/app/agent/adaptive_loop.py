@@ -64,7 +64,18 @@ def _confidence_ceiling(questions_asked: int) -> float:
 
 def _public_payload(payload: dict | None) -> dict:
     """Strip answer-bearing fields before a question goes to the browser."""
-    return {k: v for k, v in (payload or {}).items() if k not in _ANSWER_KEYS}
+    payload = dict(payload or {})  # defensive copy
+
+    if "public_test_cases" in payload:
+        payload["test_cases"] = payload["public_test_cases"]
+
+    payload.pop("public_test_cases", None)
+
+    return {
+        k: v
+        for k, v in (payload or {}).items() 
+        if k not in _ANSWER_KEYS
+    }
 
 
 # ── The turn entrypoint ──────────────────────────────────────────────────────
