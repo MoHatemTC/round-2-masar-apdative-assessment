@@ -19,7 +19,9 @@ import asyncio
 
 from app.services.selection import select_competency_question
 from app.services.grading import grade_answer
-from app.services.estimation import estimate_level
+from app.estimator.engine import estimate_level
+from app.estimator.contract import EstimatorInput
+from app.estimator.types import Difficulty
 
 # ── Tunable convergence knobs (start here; see ARCHITECTURE.md) ──────────────
 CONFIDENCE_TARGET = 0.90
@@ -211,43 +213,81 @@ async def grade(db, session: dict, state: dict, tool_result: dict) -> None:
     t_types[tool_type] = t_types.get(tool_type, 0) + 1
     pc["asked_types"] = t_types
 
+# async def estimate(db, session: dict, state: dict) -> None:
+#     """Bayesian update of the active competency's 1–5 posterior from the latest grade."""
+#     grading = state.get("_grading", {})
+#     q = state.get("current_question", {})
+
+#     # Defensive programming: Do not estimate if grading failed[cite: 2]
+#     if grading.get("flagged", False) or grading.get("score") is None:
+#         return
+
+#     cid = q.get("competency_id")
+#     pc = state["per_competency"][cid]
+
+#     # 1. Map difficulty to the 1-5 scale[cite: 1]
+#     diff_raw = q.get("difficulty", "medium")
+#     diff_val = 3
+#     if isinstance(diff_raw, str):
+#         d = diff_raw.lower()
+#         if d == "easy": diff_val = 2
+#         elif d == "hard": diff_val = 4
+#     elif isinstance(diff_raw, (int, float)):
+#         diff_val = round(diff_raw)
+
+#     # 2. Update posterior deterministically without LLM calls[cite: 1]
+#     res = estimate_level(pc["posterior"], grading["score"], diff_val)
+
+#     # 3. Apply results
+#     pc["posterior"] = res["posterior"]
+#     pc["level"] = res["level"]
+
+#     # 4. Cap confidence ceiling to prevent one answer from triggering an early stop[cite: 1]
+#     raw_conf = res.get("confidence", 0.0)
+#     ceiling = _confidence_ceiling(pc["questions_asked"])
+#     pc["confidence"] = min(raw_conf, ceiling)
+
+#     # 5. Append history for stable-convergence check
+#     pc["level_history"].append(pc["level"])
 async def estimate(db, session: dict, state: dict) -> None:
     """Bayesian update of the active competency's 1–5 posterior from the latest grade."""
     grading = state.get("_grading", {})
     q = state.get("current_question", {})
 
-    # Defensive programming: Do not estimate if grading failed[cite: 2]
     if grading.get("flagged", False) or grading.get("score") is None:
         return
 
     cid = q.get("competency_id")
     pc = state["per_competency"][cid]
 
-    # 1. Map difficulty to the 1-5 scale[cite: 1]
+    # Map the question's difficulty to the Difficulty enum, defaulting to MEDIUM for anything unrecognized
     diff_raw = q.get("difficulty", "medium")
-    diff_val = 3
-    if isinstance(diff_raw, str):
-        d = diff_raw.lower()
-        if d == "easy": diff_val = 2
-        elif d == "hard": diff_val = 4
-    elif isinstance(diff_raw, (int, float)):
-        diff_val = round(diff_raw)
+    try:
+        difficulty = Difficulty(str(diff_raw).lower())
+    except ValueError:
+        difficulty = Difficulty.MEDIUM
 
-    # 2. Update posterior deterministically without LLM calls[cite: 1]
-    res = estimate_level(pc["posterior"], grading["score"], diff_val)
+    # Convert list-style posterior (index 0-4 = levels 1-5) to the dict shape the real contract expects
+    posterior_dict = {level: pc["posterior"][level - 1] for level in range(1, 6)}
 
-    # 3. Apply results
-    pc["posterior"] = res["posterior"]
-    pc["level"] = res["level"]
+    estimator_input = EstimatorInput(
+        posterior=posterior_dict,
+        score=int(round(grading["score"])),
+        difficulty=difficulty,
+        question_count=pc["questions_asked"],
+        level_history=pc["level_history"],
+    )
 
-    # 4. Cap confidence ceiling to prevent one answer from triggering an early stop[cite: 1]
-    raw_conf = res.get("confidence", 0.0)
+    res = estimate_level(estimator_input)
+
+    # Convert dict-style posterior back to the list shape the rest of adaptive_loop.py uses
+    pc["posterior"] = [res.posterior[level] for level in range(1, 6)]
+    pc["level"] = res.level
+
     ceiling = _confidence_ceiling(pc["questions_asked"])
-    pc["confidence"] = min(raw_conf, ceiling)
+    pc["confidence"] = min(res.confidence, ceiling)
 
-    # 5. Append history for stable-convergence check
     pc["level_history"].append(pc["level"])
-
 
 async def check_convergence(db, session: dict, state: dict) -> None:
     """Mark the active competency converged when confident / stable / capped."""

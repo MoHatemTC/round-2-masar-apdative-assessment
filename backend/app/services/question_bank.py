@@ -56,22 +56,65 @@ async def sub_ids(db, track_id: str) -> list[str]:
     raise NotImplementedError
 
 
-async def select_competency_question(db, competency_ids: list[str], exclude_ids: list[str],
-                                     asked_types: list[str], target_difficulty: int | None = None,
-                                     question_set_id: str | None = None) -> dict | None:
-    """Pick the next bank question: not-yet-used, DIFFICULTY-adaptive, and VARIED by tool type.
-    If `question_set_id` is given, restrict to that set. Return None when the bank is exhausted.
-    TODO:
-      1. Query question_bank where competency_id in competency_ids, is_active, id not in exclude_ids.
-      2. If question_set_id: intersect with question_set_items for that set.
-      3. Difficulty-adaptive: `target_difficulty` is a 1..5 level (= round(current level estimate)). Map each
-         candidate row's easy/medium/hard via schemas.question_types.level_of, then prefer the pool whose
-         mapped level is closest to `target_difficulty`; widen the window only if nothing is left at/near it.
-      4. Among those, group by tool_type and pick from the least-asked type (per asked_types) for variety.
-      5. Return one, or None when nothing remains.
-    """
-    raise NotImplementedError
+_DIFFICULTY_LEVEL = {"easy": 2, "medium": 3, "hard": 4}
 
+
+def _difficulty_level(q: dict) -> int:
+    """Map a question's difficulty (str or numeric) onto the 1-5 scale used for matching."""
+    d = q.get("difficulty")
+    if isinstance(d, (int, float)):
+        return round(d)
+    if isinstance(d, str):
+        return _DIFFICULTY_LEVEL.get(d.lower(), 3)
+    return 3
+
+
+async def select_competency_question(
+    supabase,
+    competency: str,
+    sub_ids: list[str],
+    current_estimate: int | None = None,
+    tool_type_counts: dict | None = None,
+    question_set_id: str | None = None,
+) -> dict | None:
+    """Pick the next bank question: not-yet-used, difficulty-adaptive, varied by tool type.
+    Returns None when the bank is exhausted for this competency."""
+    tool_type_counts = tool_type_counts or {}
+    exclude_ids = sub_ids or []
+
+    query = (
+        supabase.table("question_bank")
+        .select("*")
+        .eq("competency_id", competency)
+        .eq("is_active", True)
+    )
+    if exclude_ids:
+        query = query.not_.in_("id", exclude_ids)
+
+    result = await query.execute()
+    candidates = result.data or []
+
+    if question_set_id:
+        items_result = await (
+            supabase.table("question_set_items")
+            .select("question_id")
+            .eq("question_set_id", question_set_id)
+            .execute()
+        )
+        allowed_ids = {row["question_id"] for row in (items_result.data or [])}
+        candidates = [c for c in candidates if c.get("id") in allowed_ids]
+
+    if not candidates:
+        return None
+
+    target = current_estimate if current_estimate is not None else 3
+
+    min_distance = min(abs(_difficulty_level(q) - target) for q in candidates)
+    closest = [q for q in candidates if abs(_difficulty_level(q) - target) == min_distance]
+
+    closest.sort(key=lambda q: tool_type_counts.get(q.get("tool_type"), 0))
+
+    return closest[0]
 
 async def personalize_question(bank_q: dict, cv_context: str, candidate_level: str = "intermediate",
                                language: str = "English", session_id: str | None = None) -> dict:
