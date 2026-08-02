@@ -266,6 +266,7 @@ export default function AssessFlow() {
 
       {question && AnswerComponent && (
         <AnswerComponent
+          key={(question as any).question_number ?? (question as any).id}
           question={question}
           onSubmit={(result: ToolResult) => next(result)}
           isSubmitting={isSubmitting}

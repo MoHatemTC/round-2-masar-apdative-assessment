@@ -1,6 +1,7 @@
 from __future__ import annotations
 import os
 import asyncio
+import json
 import logging
 from openai import AsyncOpenAI, APIError, APITimeoutError
 from app.db import get_db

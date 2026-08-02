@@ -25,6 +25,8 @@ from app.services.question_bank import cv_estimate_levels
 from app.services.question_bank import personalize_question
 from app.services.llm import generate_fallback_question
 from app.schemas.question_types import validate_question_payload
+from app.services.selection import select_competency_question
+from app.services.grading import grade_answer
 import logging
 import copy
 logger = logging.getLogger(__name__)
@@ -275,7 +277,7 @@ async def pick_question(db, session: dict, state: dict) -> dict:
         except Exception as e:
             logger.warning(f"Fallback generation failed: {e}")
             pc["converged"] = True
-            pc["converged_reason"] = "fallback_failed"
+            pc["converged_reason"] = "max_questions"
             state["active_index"] += 1
 
             return await pick_question(
