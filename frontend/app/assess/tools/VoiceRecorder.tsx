@@ -40,6 +40,7 @@ export default function VoiceRecorder({ question, onSubmit, isSubmitting = false
   const recordStartRef = useRef<number>(0);
   const finalBlobRef = useRef<Blob | null>(null);   // held in memory only, until submit
   const finalDurationRef = useRef<number>(0);
+  const hasSubmittedRef = useRef(false);
 
   const timeLimit = question.payload.time_limit_seconds ?? 120;
   const [secondsLeft, setSecondsLeft] = useState(timeLimit);
@@ -153,6 +154,8 @@ export default function VoiceRecorder({ question, onSubmit, isSubmitting = false
   }
 
   async function submitWhatWeHave() {
+      if (hasSubmittedRef.current) return;
+      hasSubmittedRef.current = true;
     // Nothing recorded and nothing typed → genuine skip, no network call needed.
     if (!finalBlobRef.current && !typedFallback.trim()) {
       onSubmit({ skipped: true });
@@ -203,10 +206,16 @@ export default function VoiceRecorder({ question, onSubmit, isSubmitting = false
     `/api/sessions/${sessionId}/questions/${questionNumber}/voice-answer`,
     { method: "POST", body: formData }
   );
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    setRecordError(err.detail ?? "Skip failed — please try again.");
+    return;
+  }
+
   const data = await res.json();
   onSubmit({ pregraded: true });
 }
-
   const minutes = Math.floor(secondsLeft / 60);
   const seconds = secondsLeft % 60;
   const isUrgent = secondsLeft <= 10;

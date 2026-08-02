@@ -1,8 +1,9 @@
-"""Selecting + personalizing bank questions for the adaptive loop.  [TODO]
+"""Personalizing bank questions for the adaptive loop.  [TODO]
 
-`sub_ids`, `select_competency_question`, and `generate_fallback_question` belong to the
-question-selection lane and are untouched here. `cv_estimate_levels` and `personalize_question`
-are this lane's (Intake, CV & Personalization) responsibility.
+`select_competency_question` and `sub_ids` live in app/services/selection.py — that lane owns
+question selection and it is untouched here (do not redefine it in this file; adaptive_loop.py
+imports the selection.py version). `cv_estimate_levels`, `personalize_question`, and
+`generate_fallback_question` are this lane's (Intake, CV & Personalization) responsibility.
 """
 from __future__ import annotations
 
@@ -49,72 +50,6 @@ def _extract_json_from_text(text: str | None) -> dict:
         return {}
     return parsed if isinstance(parsed, dict) else {}
 
-
-async def sub_ids(db, track_id: str) -> list[str]:
-    """A track + its sub-competency ids (questions are usually linked to subs).
-    TODO: return [track_id] + [children ids]."""
-    raise NotImplementedError
-
-
-_DIFFICULTY_LEVEL = {"easy": 2, "medium": 3, "hard": 4}
-
-
-def _difficulty_level(q: dict) -> int:
-    """Map a question's difficulty (str or numeric) onto the 1-5 scale used for matching."""
-    d = q.get("difficulty")
-    if isinstance(d, (int, float)):
-        return round(d)
-    if isinstance(d, str):
-        return _DIFFICULTY_LEVEL.get(d.lower(), 3)
-    return 3
-
-
-async def select_competency_question(
-    supabase,
-    competency: str,
-    sub_ids: list[str],
-    current_estimate: int | None = None,
-    tool_type_counts: dict | None = None,
-    question_set_id: str | None = None,
-) -> dict | None:
-    """Pick the next bank question: not-yet-used, difficulty-adaptive, varied by tool type.
-    Returns None when the bank is exhausted for this competency."""
-    tool_type_counts = tool_type_counts or {}
-    exclude_ids = sub_ids or []
-
-    query = (
-        supabase.table("question_bank")
-        .select("*")
-        .eq("competency_id", competency)
-        .eq("is_active", True)
-    )
-    if exclude_ids:
-        query = query.not_.in_("id", exclude_ids)
-
-    result = await query.execute()
-    candidates = result.data or []
-
-    if question_set_id:
-        items_result = await (
-            supabase.table("question_set_items")
-            .select("question_id")
-            .eq("question_set_id", question_set_id)
-            .execute()
-        )
-        allowed_ids = {row["question_id"] for row in (items_result.data or [])}
-        candidates = [c for c in candidates if c.get("id") in allowed_ids]
-
-    if not candidates:
-        return None
-
-    target = current_estimate if current_estimate is not None else 3
-
-    min_distance = min(abs(_difficulty_level(q) - target) for q in candidates)
-    closest = [q for q in candidates if abs(_difficulty_level(q) - target) == min_distance]
-
-    closest.sort(key=lambda q: tool_type_counts.get(q.get("tool_type"), 0))
-
-    return closest[0]
 
 async def personalize_question(bank_q: dict, cv_context: str, candidate_level: str = "intermediate",
                                language: str = "English", session_id: str | None = None) -> dict:
