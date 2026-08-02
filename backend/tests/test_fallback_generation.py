@@ -1,6 +1,6 @@
 import pytest
 
-from app.services import llm
+from app.services import question_bank
 
 
 @pytest.mark.asyncio
@@ -11,22 +11,40 @@ async def test_generate_fallback_question(monkeypatch):
             "success": True,
             "text": """
 {
-    "body":"Explain polymorphism.",
-    "tool_type":"open_ended",
+    "body":"Describe a time you had to debug a tricky polymorphism issue.",
+    "tool_type":"voice",
     "difficulty":3,
-    "competency_id":"java"
+    "competency_id":"java",
+    "payload": {"evaluation_criteria": ["Names the bug", "Explains the fix"]}
 }
 """
         }
 
-    monkeypatch.setattr(llm, "call_llm", fake_call_llm)
+    monkeypatch.setattr(question_bank, "call_llm", fake_call_llm)
 
-    q = await llm.generate_fallback_question(
+    q = await question_bank.generate_fallback_question(
         competency_id="java",
         difficulty=3,
     )
 
-    assert q["tool_type"] == "open_ended"
+    assert q["tool_type"] == "voice"
     assert q["difficulty"] == 3
     assert q["competency_id"] == "java"
     assert "body" in q
+    assert q["payload"]["evaluation_criteria"]
+    assert q["id"]
+
+
+@pytest.mark.asyncio
+async def test_generate_fallback_question_rejects_wrong_tool_type(monkeypatch):
+
+    async def fake_call_llm(*args, **kwargs):
+        return {
+            "success": True,
+            "text": '{"body": "x", "tool_type": "open_ended", "difficulty": 3, "competency_id": "java"}',
+        }
+
+    monkeypatch.setattr(question_bank, "call_llm", fake_call_llm)
+
+    with pytest.raises(ValueError):
+        await question_bank.generate_fallback_question(competency_id="java", difficulty=3)

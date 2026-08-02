@@ -23,7 +23,7 @@ from app.estimator.types import Difficulty
 from app.services.prior import compute_prior
 from app.services.question_bank import cv_estimate_levels
 from app.services.question_bank import personalize_question
-from app.services.llm import generate_fallback_question
+from app.services.question_bank import generate_fallback_question
 from app.schemas.question_types import validate_question_payload
 from app.services.selection import select_competency_question
 from app.services.grading import grade_answer
@@ -253,8 +253,8 @@ async def pick_question(db, session: dict, state: dict) -> dict:
                 competency_id=cid,
                 difficulty=target_difficulty,
             )
-            if q.get("tool_type") != "open_ended":
-                raise ValueError("Fallback must be open-ended")
+            if q.get("tool_type") != "voice":
+                raise ValueError("Fallback must be tool_type voice")
 
             errors = validate_question_payload(
                 q.get("tool_type"),

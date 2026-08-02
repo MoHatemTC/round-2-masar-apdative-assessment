@@ -8,6 +8,7 @@ imports the selection.py version). `cv_estimate_levels`, `personalize_question`,
 from __future__ import annotations
 
 import json
+import uuid
 
 from app.services.llm import call_llm
 
@@ -191,3 +192,75 @@ async def cv_estimate_levels(cv_json: dict | None, queue: list[dict], session_id
         if level is not None:
             estimates[competency_id] = level
     return estimates
+
+async def generate_fallback_question(
+    competency_id: str,
+    difficulty: int,
+    session_id: str | None = None,
+) -> dict:
+    """
+    Generate a fallback voice question when the question bank has no
+    remaining questions for this competency. Emits tool_type "voice" (not
+    "open_ended" — no frontend component is registered for that, so a
+    candidate hitting bank exhaustion would previously see "Unsupported
+    question type" and the session would dead-end) with an
+    evaluation_criteria rubric, matching the shape grading.py and
+    schemas/question_types.py already expect for tool_type "voice".
+    """
+
+    prompt = f"""
+Generate ONE open-ended interview question to be answered by voice.
+
+Requirements:
+- Competency: {competency_id}
+- Difficulty: {difficulty}/5
+- Tool type must be "voice".
+- Include 2-4 short evaluation_criteria bullet points a grader would check
+  the candidate's spoken answer against.
+- Do NOT generate any answer.
+- Return ONLY valid JSON.
+
+Format:
+
+{{
+    "body": "...",
+    "tool_type": "voice",
+    "difficulty": {difficulty},
+    "competency_id": "{competency_id}",
+    "payload": {{
+        "evaluation_criteria": ["...", "..."]
+    }}
+}}
+"""
+
+    result = await call_llm(
+        prompt,
+        kind="generate",
+        session_id=session_id,
+    )
+
+    if not result["success"]:
+        raise RuntimeError(result["error"])
+
+    try:
+        question = json.loads(result["text"])
+    except json.JSONDecodeError:
+        raise ValueError("Invalid JSON returned from LLM")
+
+    if question.get("tool_type") != "voice":
+        raise ValueError("Fallback question must be tool_type voice")
+
+    if not isinstance(question.get("body"), str) or not question["body"].strip():
+        raise ValueError("Fallback question missing body")
+
+    payload = question.get("payload")
+    if not isinstance(payload, dict) or not payload.get("evaluation_criteria"):
+        raise ValueError("Fallback question missing evaluation_criteria")
+
+    # Bank questions have a stable id from the DB; a fallback question is
+    # generated fresh each time and has none — synthesize one so grade()'s
+    # answer_row.question_id isn't silently null forever.
+    question.setdefault("id", f"fallback-{uuid.uuid4()}")
+    question.setdefault("competency_id", competency_id)
+
+    return question

@@ -181,8 +181,8 @@ export async function uploadCv(sessionId: string, file: File): Promise<CvUploadR
 
 export async function turn(params: {
   session_id: string;
-  tool_result?: ToolResult;
   question_number?: number;
+  tool_result?: ToolResult;
 }): Promise<TurnResponse> {
   return apiRequest("/chat/turn", {
     method: "POST",
