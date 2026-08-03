@@ -1,7 +1,6 @@
 import pytest
 
-from app.services import llm
-
+from app.services import question_bank
 
 @pytest.mark.asyncio
 async def test_generate_fallback_question(monkeypatch):
@@ -12,21 +11,28 @@ async def test_generate_fallback_question(monkeypatch):
             "text": """
 {
     "body":"Explain polymorphism.",
-    "tool_type":"open_ended",
+    "tool_type":"voice",
     "difficulty":3,
-    "competency_id":"java"
+    "competency_id":"java",
+    "payload":{
+        "evaluation_criteria":[
+            "Accuracy",
+            "Clarity",
+            "Depth"
+        ]
+    }
 }
 """
         }
 
-    monkeypatch.setattr(llm, "call_llm", fake_call_llm)
+    monkeypatch.setattr(question_bank, "call_llm", fake_call_llm)
 
-    q = await llm.generate_fallback_question(
+    q = await question_bank.generate_fallback_question(
         competency_id="java",
         difficulty=3,
     )
 
-    assert q["tool_type"] == "open_ended"
+    assert q["tool_type"] == "voice"
     assert q["difficulty"] == 3
     assert q["competency_id"] == "java"
     assert "body" in q

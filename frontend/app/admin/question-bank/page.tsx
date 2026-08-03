@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { 
   importBank,
   browseQuestions,
-  type QuestionBrowserItem
+  type QuestionBrowserItem,
+  listCompetencies
  } from "@/lib/api";
 
 import Button from "@/components/ui/Button";
@@ -21,6 +22,13 @@ export default function QuestionBankPage() {
   const [competency, setCompetency] = useState("");
   const [difficulty, setDifficulty] = useState("");
   const [loadingQuestions, setLoadingQuestions] = useState(true);
+
+  type Competency = {
+    id: string;
+    name: string;
+  };
+
+  const [competencies, setCompetencies] = useState<Competency[]>([]);
 
   useEffect(() => {
     setLoadingQuestions(true);
@@ -40,6 +48,20 @@ export default function QuestionBankPage() {
         })
         .finally(() => setLoadingQuestions(false));
     }, [toolType, competency, difficulty]);
+
+    useEffect(() => {
+      async function loadCompetencies() {
+        try {
+          const data = await listCompetencies();
+          setCompetencies(data);
+        } catch (err) {
+          console.error(err);
+          setErr("Failed to load competencies.");
+      }
+    }
+
+    loadCompetencies();
+  }, []);
 
   async function handleImport() {
     setIsImporting(true);
@@ -65,6 +87,9 @@ export default function QuestionBankPage() {
       });
 
       setQuestions(updated);
+
+      const comps = await listCompetencies();
+      setCompetencies(comps);
 
     } catch (e) { setErr(e instanceof Error ? e.message : "Import failed"); }
     finally{
@@ -105,8 +130,19 @@ export default function QuestionBankPage() {
         <label className="mb-1 block text-sm font-medium">
           Competency
         </label>
-        <select disabled={loadingQuestions} className="w-full rounded-md border border-gray-300 bg-white p-2 dark:border-gray-700 dark:bg-gray-800 dark:text-white" value={competency} onChange={(e) => setCompetency(e.target.value)}>
+        <select
+          disabled={loadingQuestions}
+          className="w-full rounded-md border border-gray-300 bg-white p-2 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+          value={competency}
+          onChange={(e) => setCompetency(e.target.value)}
+        >
           <option value="">All Competencies</option>
+
+          {competencies.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
         </select>
        </div>
 
