@@ -11,11 +11,17 @@ async def test_generate_fallback_question(monkeypatch):
             "success": True,
             "text": """
 {
-    "body":"Describe a time you had to debug a tricky polymorphism issue.",
+    "body":"Explain polymorphism.",
     "tool_type":"voice",
     "difficulty":3,
     "competency_id":"java",
-    "payload": {"evaluation_criteria": ["Names the bug", "Explains the fix"]}
+    "payload":{
+        "evaluation_criteria":[
+            "Accuracy",
+            "Clarity",
+            "Depth"
+        ]
+    }
 }
 """
         }

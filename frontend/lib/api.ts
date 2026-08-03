@@ -314,12 +314,11 @@ export async function sendInvitation(payload: {
 
 export interface QuestionBrowserItem {
   id: string;
-  source_ref: string;
   text: string;
   tool_type: string;
-  difficulty: number;
+  difficulty: string;
   competency: {
-    code: string;
+    id: string;
     name: string;
   };
 }
@@ -345,4 +344,16 @@ export async function browseQuestions(filters?: {
   return apiRequest<QuestionBrowserItem[]>(
     `/questions${query ? `?${query}` : ""}`
   );
+}
+
+export interface Competency {
+  id: string;
+  name: string;
+  code: string;
+}
+
+export async function listCompetencies(): Promise<
+  { id: string; name: string; code: string }[]
+> {
+  return apiRequest("/questions/competencies");
 }

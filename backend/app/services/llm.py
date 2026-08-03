@@ -88,6 +88,8 @@ async def call_llm(prompt: str, *, kind: str, session_id: str | None = None, max
 
     await _safe_log(session_id=session_id, kind=kind, prompt=prompt, response=None)
     return {"success": False, "text": None, "error": last_error}
+
+    
     
 
 async def call_stt(audio_bytes: bytes, filename: str, *, session_id: str | None = None) -> dict:

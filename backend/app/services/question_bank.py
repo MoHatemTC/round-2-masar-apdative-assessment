@@ -141,13 +141,80 @@ async def personalize_question(bank_q: dict, cv_context: str, candidate_level: s
     return personalized
 
 
-async def generate_fallback_question(competency_name: str, rubric: str, cv_context: str,
-                                     language: str = "English", exclude_ids: list[str] | None = None) -> dict:
-    """An AI-generated OPEN-ENDED question used when a competency's bank is exhausted before it converges
-    (never an MCQ — an invented answer key can't be trusted). The loop keeps calling this to KEEP PROBING
-    until the competency converges or hits MAX_QUESTIONS, so avoid repeating earlier prompts (use
-    exclude_ids / vary the angle). Return the same shape as a personalized question with tool_type='voice'."""
-    raise NotImplementedError
+async def generate_fallback_question(
+    competency_id: str,
+    difficulty: int,
+    session_id: str | None = None,
+) -> dict:
+    """
+    Generate a fallback voice question when the question bank
+    has no remaining questions for this competency.
+    """
+
+    prompt = f"""
+Generate ONE interview question.
+
+Requirements:
+- Competency: {competency_id}
+- Difficulty: {difficulty}/5
+- Tool type must be "voice".
+- Do NOT generate any answer.
+- Return ONLY valid JSON.
+
+Format:
+
+{{
+    "body": "...",
+    "tool_type": "voice",
+    "difficulty": ...,
+    "competency_id": "...",
+    "payload": {{
+        "evaluation_criteria": [
+            "...",
+            "...",
+            "..."
+        ]
+    }}
+}}
+"""
+
+    result = await call_llm(
+        prompt,
+        kind="generate",
+        session_id=session_id,
+    )
+
+    if not result["success"]:
+        raise RuntimeError(result["error"])
+
+    try:
+        question = json.loads(result["text"])
+        question["competency_id"] = competency_id
+        question["difficulty"] = difficulty
+
+    except json.JSONDecodeError:
+        raise ValueError("Invalid JSON returned from LLM")
+
+    if question.get("tool_type") != "voice":
+        raise ValueError("Fallback question must be voice")
+
+    if question.get("competency_id") != competency_id:
+        raise ValueError("Fallback question competency mismatch")
+
+    payload = question.get("payload")
+
+    if not isinstance(payload, dict):
+        raise ValueError("Fallback question missing payload")
+
+    criteria = payload.get("evaluation_criteria")
+
+    if not isinstance(criteria, list) or not criteria:
+        raise ValueError("Fallback question missing evaluation_criteria")
+
+    if not isinstance(question.get("body"), str) or not question["body"].strip():
+        raise ValueError("Fallback question missing body")
+
+    return question
 
 
 async def cv_estimate_levels(cv_json: dict | None, queue: list[dict], session_id: str | None = None) -> dict[str, int]:

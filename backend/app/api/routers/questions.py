@@ -13,12 +13,10 @@ FastAPI -> Supabase
 """
 
 from typing import Optional
-
 from fastapi import APIRouter, Depends, Query
-
 from supabase import AsyncClient
-
 from app.db.session import get_supabase
+from uuid import UUID
 
 
 router = APIRouter(
@@ -45,26 +43,27 @@ async def browse_questions(
 
     /questions?tool_type=coding
 
-    /questions?competency=PYTHON
+    /questions?competency=<uuid>
 
     /questions?difficulty=3
     """
 
     query = (
-        db.table("questions")
+        db.table("question_bank")
         .select(
             """
             id,
-            source_ref,
-            text,
+            body,
             tool_type,
             difficulty,
             competency:competencies(
+                id,
                 code,
                 name
             )
             """
         )
+        .eq("is_active", True)
     )
 
     if tool_type:
@@ -73,26 +72,53 @@ async def browse_questions(
             tool_type,
         )
 
-    if difficulty:
-        query = query.eq(
-            "difficulty",
-            difficulty,
-        )
+    if difficulty is not None:
+        query = query.eq("difficulty", difficulty)
 
     if competency:
         query = query.eq(
-            "competencies.code",
+            "competency_id",
             competency,
         )
 
     result = await query.execute()
 
-    return result.data
+    items = []
 
+    for row in result.data or []:
+        comp = row.get("competency") or {}
+
+        items.append(
+            {
+                "id": row["id"],
+                "text": row["body"],
+                "tool_type": row["tool_type"],
+                "difficulty": row["difficulty"],
+                "competency": {
+                    "id": comp.get("id"),
+                    "name": comp.get("name") or comp.get("code") or "",
+                },
+            }
+        )
+    
+    return items
+
+@router.get("/competencies")
+async def list_competencies(
+    db: AsyncClient = Depends(get_supabase),
+):
+    result = (
+        await db.table("competencies")
+        .select("id, name, code")
+        .order("name")
+        .execute()
+    )
+
+    return result.data
 
 @router.get("/{question_id}")
 async def get_question(
-    question_id: int,
+    question_id: UUID,
     db: AsyncClient = Depends(get_supabase),
 ):
     """
@@ -100,10 +126,13 @@ async def get_question(
     """
 
     result = (
-        await db.table("questions")
+        await db.table("question_bank")
         .select(
             """
-            *,
+            id,
+            body,
+            tool_type,
+            difficulty,
             competency:competencies(
                 id,
                 code,
@@ -116,84 +145,16 @@ async def get_question(
         .execute()
     )
 
-    return result.data
+    row = result.data or {}
+    comp = row.get("competency") or {}
 
-
-@router.get("/competency/{code}")
-async def questions_by_competency(
-    code: str,
-    db: AsyncClient = Depends(get_supabase),
-):
-    """
-    Browse questions by competency code.
-    """
-
-    result = (
-        await db.table("questions")
-        .select(
-            """
-            *,
-            competency:competencies(
-                code,
-                name
-            )
-            """
-        )
-        .eq(
-            "competencies.code",
-            code,
-        )
-        .execute()
-    )
-
-    return result.data
-
-
-@router.get("/difficulty/{difficulty}")
-async def questions_by_difficulty(
-    difficulty: int,
-    db: AsyncClient = Depends(get_supabase),
-):
-    """
-    Browse questions by difficulty.
-
-    2 = easy
-
-    3 = medium
-
-    4 = hard
-    """
-
-    result = (
-        await db.table("questions")
-        .select("*")
-        .eq(
-            "difficulty",
-            difficulty,
-        )
-        .execute()
-    )
-
-    return result.data
-
-
-@router.get("/tool/{tool_type}")
-async def questions_by_tool(
-    tool_type: str,
-    db: AsyncClient = Depends(get_supabase),
-):
-    """
-    Browse by tool type.
-    """
-
-    result = (
-        await db.table("questions")
-        .select("*")
-        .eq(
-            "tool_type",
-            tool_type,
-        )
-        .execute()
-    )
-
-    return result.data
+    return {
+        "id": row["id"],
+        "text": row["body"],
+        "tool_type": row["tool_type"],
+        "difficulty": row["difficulty"],
+        "competency": {
+            "id": comp.get("id"),
+            "name": comp.get("name") or comp.get("code") or "",
+        },
+    }

@@ -254,7 +254,7 @@ async def pick_question(db, session: dict, state: dict) -> dict:
                 difficulty=target_difficulty,
             )
             if q.get("tool_type") != "voice":
-                raise ValueError("Fallback must be tool_type voice")
+                raise ValueError("Fallback must be voice")
 
             errors = validate_question_payload(
                 q.get("tool_type"),
@@ -277,7 +277,7 @@ async def pick_question(db, session: dict, state: dict) -> dict:
         except Exception as e:
             logger.warning(f"Fallback generation failed: {e}")
             pc["converged"] = True
-            pc["converged_reason"] = "max_questions"
+            pc["converged_reason"] = "fallback_failed"
             state["active_index"] += 1
 
             return await pick_question(

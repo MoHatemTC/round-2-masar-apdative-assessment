@@ -26,9 +26,6 @@ export default function AdminNav() {
         <Link href="/admin/question-bank" className={linkClasses}>
           Questions
         </Link>
-        <Link href="/admin/import" className={linkClasses}>
-          Import Bank
-        </Link>
         <Link href="/admin/invitations">
           Invitations
         </Link>
