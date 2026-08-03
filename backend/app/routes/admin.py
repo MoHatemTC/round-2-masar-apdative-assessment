@@ -291,6 +291,12 @@ async def create_assessment(
         "time_limit_min":
             payload.time_limit_min,
 
+        # Defaults to false at the DB level; without this every new
+        # assessment's candidate link 404s at candidate_intake.py's
+        # is_published check until someone flips it manually.
+        "is_published":
+            True,
+
     }
 
     # Insert the derived assessment into the database

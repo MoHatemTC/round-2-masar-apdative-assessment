@@ -111,7 +111,11 @@ export default function AssessFlow() {
     setIsSubmitting(true);
     setLoopError(null);
     try {
-      const r = await turn({ session_id: sessionId, tool_result: toolResult });
+      const r = await turn({
+        session_id: sessionId,
+        question_number: toolResult ? question?.question_number : undefined,
+        tool_result: toolResult,
+      });
       if (r.complete) {
         setDone(r.emit);
         setQuestion(null);
@@ -266,6 +270,7 @@ export default function AssessFlow() {
 
       {question && AnswerComponent && (
         <AnswerComponent
+          key={(question as any).question_number ?? (question as any).id}
           question={question}
           onSubmit={(result: ToolResult) => next(result)}
           isSubmitting={isSubmitting}
@@ -277,26 +282,23 @@ export default function AssessFlow() {
         <p className="text-red-600">Unsupported question type: {(question as any).tool_type}</p>
       )}
       {done && (
-        <Card className="text-center py-8">
-          <h2 className="text-2xl font-semibold text-green-600">
-            Assessment Completed!
-          </h2>
-
-          <p className="mt-4 text-gray-600 dark:text-gray-400">
-            Thank you for completing the assessment.
-          </p>
-
-          <p className="mt-2 text-gray-600 dark:text-gray-400">
-            Your report is being generated and will be available shortly.
-          </p>
-        </Card>
-        <CompletionReport
-          overall_pct={done.overall_pct ?? 0}
-          level_label={done.level_label ?? ""}
-          message={done.message}
-          has_low_confidence={done.has_low_confidence}
-        />
-      )}
+    <>
+      <Card className="text-center py-8">
+        <h2 className="text-2xl font-semibold text-green-600">
+          Assessment Completed!
+        </h2>
+        <p className="mt-4 text-gray-600 dark:text-gray-400">
+          Thank you for completing the assessment.
+        </p>
+      </Card>
+      <CompletionReport
+        overall_pct={done.overall_pct ?? 0}
+        level_label={done.level_label ?? ""}
+        message={done.message}
+        has_low_confidence={done.has_low_confidence}
+      />
+    </>
+)}
     </main>
   );
 }

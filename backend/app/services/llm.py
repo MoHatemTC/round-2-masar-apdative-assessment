@@ -1,6 +1,7 @@
 from __future__ import annotations
 import os
 import asyncio
+import json
 import logging
 from openai import AsyncOpenAI, APIError, APITimeoutError
 from app.db import get_db
@@ -87,59 +88,6 @@ async def call_llm(prompt: str, *, kind: str, session_id: str | None = None, max
 
     await _safe_log(session_id=session_id, kind=kind, prompt=prompt, response=None)
     return {"success": False, "text": None, "error": last_error}
-
-async def generate_fallback_question(
-    competency_id: str,
-    difficulty: int,
-    session_id: str | None = None,
-) -> dict:
-    """
-    Generate a fallback open-ended question when the question bank
-    has no remaining questions for this competency.
-    """
-
-    prompt = f"""
-Generate ONE open-ended interview question.
-
-Requirements:
-- Competency: {competency_id}
-- Difficulty: {difficulty}/5
-- Tool type must be open_ended.
-- Do NOT generate any answer.
-- Return ONLY valid JSON.
-
-Format:
-
-{{
-    "body": "...",
-    "tool_type": "open_ended",
-    "difficulty": {difficulty},
-    "competency_id": "{competency_id}"
-}}
-"""
-
-    result = await call_llm(
-        prompt,
-        kind="generate",
-        session_id=session_id,
-    )
-
-    if not result["success"]:
-        raise RuntimeError(result["error"])
-
-    try:
-        question = json.loads(result["text"])
-
-    except json.JSONDecodeError:
-        raise ValueError("Invalid JSON returned from LLM")
-
-    if question.get("tool_type") != "open_ended":
-        raise ValueError("Fallback question must be open-ended")
-
-    if not isinstance(question.get("body"), str) or not question["body"].strip():
-        raise ValueError("Fallback question missing body")
-
-    return question
     
 
 async def call_stt(audio_bytes: bytes, filename: str, *, session_id: str | None = None) -> dict:

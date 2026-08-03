@@ -1,12 +1,14 @@
-"""Selecting + personalizing bank questions for the adaptive loop.  [TODO]
+"""Personalizing bank questions for the adaptive loop.  [TODO]
 
-`sub_ids`, `select_competency_question`, and `generate_fallback_question` belong to the
-question-selection lane and are untouched here. `cv_estimate_levels` and `personalize_question`
-are this lane's (Intake, CV & Personalization) responsibility.
+`select_competency_question` and `sub_ids` live in app/services/selection.py — that lane owns
+question selection and it is untouched here (do not redefine it in this file; adaptive_loop.py
+imports the selection.py version). `cv_estimate_levels`, `personalize_question`, and
+`generate_fallback_question` are this lane's (Intake, CV & Personalization) responsibility.
 """
 from __future__ import annotations
 
 import json
+import uuid
 
 from app.services.llm import call_llm
 
@@ -57,29 +59,6 @@ def _extract_json_from_text(text: str | None) -> dict:
     except (json.JSONDecodeError, TypeError):
         return {}
     return parsed if isinstance(parsed, dict) else {}
-
-
-async def sub_ids(db, track_id: str) -> list[str]:
-    """A track + its sub-competency ids (questions are usually linked to subs).
-    TODO: return [track_id] + [children ids]."""
-    raise NotImplementedError
-
-
-async def select_competency_question(db, competency_ids: list[str], exclude_ids: list[str],
-                                     asked_types: list[str], target_difficulty: int | None = None,
-                                     question_set_id: str | None = None) -> dict | None:
-    """Pick the next bank question: not-yet-used, DIFFICULTY-adaptive, and VARIED by tool type.
-    If `question_set_id` is given, restrict to that set. Return None when the bank is exhausted.
-    TODO:
-      1. Query question_bank where competency_id in competency_ids, is_active, id not in exclude_ids.
-      2. If question_set_id: intersect with question_set_items for that set.
-      3. Difficulty-adaptive: `target_difficulty` is a 1..5 level (= round(current level estimate)). Map each
-         candidate row's easy/medium/hard via schemas.question_types.level_of, then prefer the pool whose
-         mapped level is closest to `target_difficulty`; widen the window only if nothing is left at/near it.
-      4. Among those, group by tool_type and pick from the least-asked type (per asked_types) for variety.
-      5. Return one, or None when nothing remains.
-    """
-    raise NotImplementedError
 
 
 async def personalize_question(bank_q: dict, cv_context: str, candidate_level: str = "intermediate",
@@ -213,3 +192,75 @@ async def cv_estimate_levels(cv_json: dict | None, queue: list[dict], session_id
         if level is not None:
             estimates[competency_id] = level
     return estimates
+
+async def generate_fallback_question(
+    competency_id: str,
+    difficulty: int,
+    session_id: str | None = None,
+) -> dict:
+    """
+    Generate a fallback voice question when the question bank has no
+    remaining questions for this competency. Emits tool_type "voice" (not
+    "open_ended" — no frontend component is registered for that, so a
+    candidate hitting bank exhaustion would previously see "Unsupported
+    question type" and the session would dead-end) with an
+    evaluation_criteria rubric, matching the shape grading.py and
+    schemas/question_types.py already expect for tool_type "voice".
+    """
+
+    prompt = f"""
+Generate ONE open-ended interview question to be answered by voice.
+
+Requirements:
+- Competency: {competency_id}
+- Difficulty: {difficulty}/5
+- Tool type must be "voice".
+- Include 2-4 short evaluation_criteria bullet points a grader would check
+  the candidate's spoken answer against.
+- Do NOT generate any answer.
+- Return ONLY valid JSON.
+
+Format:
+
+{{
+    "body": "...",
+    "tool_type": "voice",
+    "difficulty": {difficulty},
+    "competency_id": "{competency_id}",
+    "payload": {{
+        "evaluation_criteria": ["...", "..."]
+    }}
+}}
+"""
+
+    result = await call_llm(
+        prompt,
+        kind="generate",
+        session_id=session_id,
+    )
+
+    if not result["success"]:
+        raise RuntimeError(result["error"])
+
+    try:
+        question = json.loads(result["text"])
+    except json.JSONDecodeError:
+        raise ValueError("Invalid JSON returned from LLM")
+
+    if question.get("tool_type") != "voice":
+        raise ValueError("Fallback question must be tool_type voice")
+
+    if not isinstance(question.get("body"), str) or not question["body"].strip():
+        raise ValueError("Fallback question missing body")
+
+    payload = question.get("payload")
+    if not isinstance(payload, dict) or not payload.get("evaluation_criteria"):
+        raise ValueError("Fallback question missing evaluation_criteria")
+
+    # Bank questions have a stable id from the DB; a fallback question is
+    # generated fresh each time and has none — synthesize one so grade()'s
+    # answer_row.question_id isn't silently null forever.
+    question.setdefault("id", f"fallback-{uuid.uuid4()}")
+    question.setdefault("competency_id", competency_id)
+
+    return question

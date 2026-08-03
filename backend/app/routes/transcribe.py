@@ -16,11 +16,7 @@ MAX_DURATION_MS = 10 * 60 * 1000
 
 # NOTE: this endpoint relies on a UNIQUE constraint on
 # answers(session_id, question_number) to make the "claim" insert below
-# race-safe. Add it if it isn't already there:
-#
-#   ALTER TABLE answers
-#     ADD CONSTRAINT answers_session_question_uniq UNIQUE (session_id, question_number);
-#
+# race-safe. 
 # Without it, two concurrent submits (e.g. a page reload firing a second
 # request while the first is still mid-grade) can both pass the "existing"
 # check below and both run STT + grading.
@@ -55,6 +51,7 @@ async def submit_voice_answer(
     question_id: str = Form(...),
     audio: UploadFile | None = File(None),
     typed_answer: str | None = Form(None),
+    skipped: bool = Form(False),
 ):
     db = await get_db()
 
@@ -66,11 +63,34 @@ async def submit_voice_answer(
     if existing_row:
         return {"status": "already_submitted", "answer": existing_row}
 
+    if skipped:
+        try:
+            claimed = await db.table("answers").insert({
+                "session_id": session_id,
+                "question_number": question_number,
+                "question_id": question_id,
+                "tool_type": "voice",
+                "skipped": True,
+                "answer_text": None,
+                "audio_url": None,
+                "transcript": None,
+                "score": 0.0,
+                "rationale": "Skipped by the candidate.",
+                "flagged": False,
+            }).execute()
+            return {"status": "submitted", "answer": claimed.data[0]}
+        except Exception as e:
+            logger.warning(f"skip claim_row insert failed: {type(e).__name__}: {e}")
+            existing = await db.table("answers").select("*").eq(
+                "session_id", session_id
+            ).eq("question_number", question_number).maybe_single().execute()
+            return {"status": "already_submitted", "answer": _row(existing)}
+
     question_resp = await db.table("question_bank").select("*").eq(
         "id", question_id
     ).maybe_single().execute()
     question = _row(question_resp) or {}
-
+    
     base_row = {
         "session_id": session_id,
         "question_number": question_number,
@@ -82,18 +102,15 @@ async def submit_voice_answer(
     }
 
     async def claim_row(extra: dict) -> dict | None:
-        """Atomically claim the (session_id, question_number) slot.
-
-        Returns the claimed row's id, or None if someone else claimed it
-        first (in which case we must NOT run STT/grading — just report
-        whatever they already saved).
-        """
         try:
             claimed = await db.table("answers").insert({**base_row, **extra}).execute()
             return claimed.data[0]
         except Exception as e:
-            logger.warning(f"claim_row insert failed: {type(e).__name__}: {e}")
-            return None
+            msg = str(e).lower()
+            if "duplicate key" in msg or "answers_session_question" in msg or "unique constraint" in msg:
+              return None  # genuinely lost the race — expected, not an error
+            logger.error(f"claim_row insert failed: {type(e).__name__}: {e}")
+            raise
 
     async def finalize(row_id: str, update: dict) -> dict:
         updated = await db.table("answers").update(update).eq("id", row_id).execute()
@@ -110,7 +127,7 @@ async def submit_voice_answer(
                 "transcript": None,
                 "score": 0.0,
                 "rationale": "No audio and no typed answer provided — treated as skipped.",
-                "flagged": True,
+                "flagged": False,
                 "skipped": True,
             })
             if claimed is None:
@@ -152,11 +169,16 @@ async def submit_voice_answer(
     if duration_ms > MAX_DURATION_MS:
         raise HTTPException(status_code=413, detail="Recording exceeds max allowed duration.")
 
-    raw = await audio.read()
-    if len(raw) > MAX_BYTES:
+    size = 0
+    chunks = []
+    while chunk := await audio.read(1024 * 1024):
+     size += len(chunk)
+     if size > MAX_BYTES:
         raise HTTPException(status_code=413, detail="Recording exceeds max allowed size.")
+     chunks.append(chunk)
+    raw = b"".join(chunks)
     if len(raw) == 0:
-        raise HTTPException(status_code=400, detail="Empty audio file.")
+     raise HTTPException(status_code=400, detail="Empty audio file.")
 
     # --- claim the slot now, right before the expensive/racy STT call ---
     claimed = await claim_row({
