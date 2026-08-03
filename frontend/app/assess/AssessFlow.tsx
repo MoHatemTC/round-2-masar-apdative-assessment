@@ -111,7 +111,11 @@ export default function AssessFlow() {
     setIsSubmitting(true);
     setLoopError(null);
     try {
-      const r = await turn({ session_id: sessionId, tool_result: toolResult });
+      const r = await turn({
+        session_id: sessionId,
+        question_number: toolResult ? question?.question_number : undefined,
+        tool_result: toolResult,
+      });
       if (r.complete) {
         setDone(r.emit);
         setQuestion(null);
@@ -266,6 +270,7 @@ export default function AssessFlow() {
 
       {question && AnswerComponent && (
         <AnswerComponent
+          key={(question as any).question_number ?? (question as any).id}
           question={question}
           onSubmit={(result: ToolResult) => next(result)}
           isSubmitting={isSubmitting}

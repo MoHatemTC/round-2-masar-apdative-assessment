@@ -1,6 +1,7 @@
 from __future__ import annotations
 import os
 import asyncio
+import json
 import logging
 from openai import AsyncOpenAI, APIError, APITimeoutError
 from app.db import get_db
@@ -89,6 +90,8 @@ async def call_llm(prompt: str, *, kind: str, session_id: str | None = None, max
     return {"success": False, "text": None, "error": last_error}
 
     
+    
+
 async def call_stt(audio_bytes: bytes, filename: str, *, session_id: str | None = None) -> dict:
     client = _get_stt_client()
     if client is None:

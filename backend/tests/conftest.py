@@ -168,6 +168,7 @@ class FakeQuery:
     def _rows(self) -> list[dict]:
         return self._tables.setdefault(self._table_name, [])
 
+    def _matches(self, row: dict) -> bool:
         def one(field: str, value: Any) -> bool:
             if isinstance(value, set):
                 return row.get(field) in value

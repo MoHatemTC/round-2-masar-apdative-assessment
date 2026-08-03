@@ -17,14 +17,16 @@ from __future__ import annotations
 import os
 import asyncio
 
-from app.services.selection import select_competency_question
-from app.services.grading import grade_answer
-from app.services.estimation import estimate_level
+from app.estimator.engine import estimate_level
+from app.estimator.contract import EstimatorInput
+from app.estimator.types import Difficulty
 from app.services.prior import compute_prior
 from app.services.question_bank import cv_estimate_levels
 from app.services.question_bank import personalize_question
 from app.services.question_bank import generate_fallback_question
 from app.schemas.question_types import validate_question_payload
+from app.services.selection import select_competency_question
+from app.services.grading import grade_answer
 import logging
 import copy
 logger = logging.getLogger(__name__)
@@ -291,6 +293,7 @@ async def pick_question(db, session: dict, state: dict) -> dict:
     
     # 6. Emit sanitized payload to frontend    
     state["_emit"] = {
+        "id": q.get("id"),
         "question_number": q_num,
         "body": q.get("body"),
         "tool_type": q.get("tool_type"),
@@ -301,31 +304,39 @@ async def pick_question(db, session: dict, state: dict) -> dict:
 
 
 async def grade(db, session: dict, state: dict, tool_result: dict) -> None:
-    """Grade the answer to state['current_question'] → 0–5 + rationale; write to `answers`."""
     q = state.get("current_question", {})
     tool_type = q.get("tool_type")
 
-    # Grade the answer defensively using the teammate's contract[cite: 2]
-    result = await grade_answer(tool_type, q, tool_result, session["id"])
+    if tool_type == "voice" and isinstance(tool_result, dict) and tool_result.get("pregraded"):
+        # /voice-answer already graded and persisted this — re-read our own stored,
+        # trusted row rather than trusting anything the client sent.
+        existing = await db.table("answers").select("score,rationale,flagged").eq(
+            "session_id", session["id"]
+        ).eq("question_number", state.get("question_number")).maybe_single().execute()
+        row = existing.data if existing is not None else None
+        result = {
+            "score": row.get("score") if row else None,
+            "rationale": row.get("rationale") if row else "Pregraded row not found — flagged for review.",
+            "flagged": row.get("flagged", True) if row else True,
+        }
+    else:
+        result = await grade_answer(tool_type, q, tool_result, session["id"])
 
-    # Persist the answer with the unique resumability constraint applied in DB migration[cite: 2]
-    answer_row = {
-        "session_id": session["id"],
-        "question_number": state.get("question_number"),
-        "question_id": q.get("id"),
-        "question_body": q.get("body"),
-        "competency_id": q.get("competency_id"),
-        "tool_type": q.get("tool_type"),
-        "score": result.get("score"),
-        "rationale": result.get("rationale"),
-        "answer_text": str(tool_result) if isinstance(tool_result, dict) else str(tool_result)
-    }
-    # Make grading idempotent: if a retry hits this, it safely overwrites the same score
-    await db.table("answers").upsert(answer_row, on_conflict="session_id,question_number").execute()
+        answer_row = {
+            "session_id": session["id"],
+            "question_number": state.get("question_number"),
+            "question_id": q.get("id"),
+            "question_body": q.get("body"),
+            "competency_id": q.get("competency_id"),
+            "tool_type": q.get("tool_type"),
+            "score": result.get("score"),
+            "rationale": result.get("rationale"),
+            "answer_text": str(tool_result) if isinstance(tool_result, dict) else str(tool_result)
+        }
+        await db.table("answers").upsert(answer_row, on_conflict="session_id,question_number").execute()
 
     state["_grading"] = result
 
-    # Update tracking for used questions and asked tool types[cite: 2]
     cid = q.get("competency_id")
     pc = state["per_competency"][cid]
     pc["used_ids"].append(str(q.get("id")))
@@ -341,38 +352,40 @@ async def estimate(db, session: dict, state: dict) -> None:
     grading = state.get("_grading", {})
     q = state.get("current_question", {})
 
-    # Defensive programming: Do not estimate if grading failed[cite: 2]
     if grading.get("flagged", False) or grading.get("score") is None:
         return
 
     cid = q.get("competency_id")
     pc = state["per_competency"][cid]
 
-    # 1. Map difficulty to the 1-5 scale[cite: 1]
+    # Map the question's difficulty to the Difficulty enum, defaulting to MEDIUM for anything unrecognized
     diff_raw = q.get("difficulty", "medium")
-    diff_val = 3
-    if isinstance(diff_raw, str):
-        d = diff_raw.lower()
-        if d == "easy": diff_val = 2
-        elif d == "hard": diff_val = 4
-    elif isinstance(diff_raw, (int, float)):
-        diff_val = round(diff_raw)
+    try:
+        difficulty = Difficulty(str(diff_raw).lower())
+    except ValueError:
+        difficulty = Difficulty.MEDIUM
 
-    # 2. Update posterior deterministically without LLM calls[cite: 1]
-    res = estimate_level(pc["posterior"], grading["score"], diff_val)
+    # Convert list-style posterior (index 0-4 = levels 1-5) to the dict shape the real contract expects
+    posterior_dict = {level: pc["posterior"][level - 1] for level in range(1, 6)}
 
-    # 3. Apply results
-    pc["posterior"] = res["posterior"]
-    pc["level"] = res["level"]
+    estimator_input = EstimatorInput(
+        posterior=posterior_dict,
+        score=int(round(grading["score"])),
+        difficulty=difficulty,
+        question_count=pc["questions_asked"],
+        level_history=pc["level_history"],
+    )
 
-    # 4. Cap confidence ceiling to prevent one answer from triggering an early stop[cite: 1]
-    raw_conf = res.get("confidence", 0.0)
+    res = estimate_level(estimator_input)
+
+    # Convert dict-style posterior back to the list shape the rest of adaptive_loop.py uses
+    pc["posterior"] = [res.posterior[level] for level in range(1, 6)]
+    pc["level"] = res.level
+
     ceiling = _confidence_ceiling(pc["questions_asked"])
-    pc["confidence"] = min(raw_conf, ceiling)
+    pc["confidence"] = min(res.confidence, ceiling)
 
-    # 5. Append history for stable-convergence check
     pc["level_history"].append(pc["level"])
-
 
 async def check_convergence(db, session: dict, state: dict) -> None:
     """Mark the active competency converged when confident / stable / capped."""

@@ -21,6 +21,7 @@ export interface AnswerComponentProps {
 export const answerComponentRegistry: Record<string, ComponentType<any>> = {
   mcq: Mcq,
   voice: VoiceRecorder,
+  open_ended: VoiceRecorder,
   visualization: DataAnalysis,
   coding: MonacoEditor,
 };
