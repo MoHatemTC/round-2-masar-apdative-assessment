@@ -73,8 +73,7 @@ async def browse_questions(
         )
 
     if difficulty is not None:
-        if difficulty is not None:
-            query = query.eq("difficulty", difficulty)
+        query = query.eq("difficulty", difficulty)
 
     if competency:
         query = query.eq(
@@ -130,7 +129,10 @@ async def get_question(
         await db.table("question_bank")
         .select(
             """
-            *,
+            id,
+            body,
+            tool_type,
+            difficulty,
             competency:competencies(
                 id,
                 code,
@@ -143,4 +145,16 @@ async def get_question(
         .execute()
     )
 
-    return result.data
+    row = result.data or {}
+    comp = row.get("competency") or {}
+
+    return {
+        "id": row["id"],
+        "text": row["body"],
+        "tool_type": row["tool_type"],
+        "difficulty": row["difficulty"],
+        "competency": {
+            "id": comp.get("id"),
+            "name": comp.get("name") or comp.get("code") or "",
+        },
+    }
