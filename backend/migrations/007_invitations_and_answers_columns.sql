@@ -1,5 +1,5 @@
 -- ============================================================================
--- 006_invitations_and_answers_columns.sql
+-- 007_invitations_and_answers_columns.sql
 --
 -- Missing migrations were breaking three things:
 --   • invitations.token   — admin.py writes a "token" field on every
