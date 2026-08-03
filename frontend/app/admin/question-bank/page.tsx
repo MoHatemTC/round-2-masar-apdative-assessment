@@ -1,6 +1,6 @@
 "use client";
 // Admin: paste/upload a question-bank JSON → import → it becomes a Question Set.  [TODO: build out]
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { 
   importBank,
   browseQuestions,
@@ -22,6 +22,8 @@ export default function QuestionBankPage() {
   const [competency, setCompetency] = useState("");
   const [difficulty, setDifficulty] = useState("");
   const [loadingQuestions, setLoadingQuestions] = useState(true);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   type Competency = {
     id: string;
@@ -63,9 +65,42 @@ export default function QuestionBankPage() {
     loadCompetencies();
   }, []);
 
+function openFilePicker() {
+  fileInputRef.current?.click();
+}
+
+async function handleFileSelected(
+  e: React.ChangeEvent<HTMLInputElement>
+) {
+  const file = e.target.files?.[0];
+
+  if (!file) return;
+
+  if (!file.name.endsWith(".json")) {
+    setMsg("");
+    setErr("Please choose a JSON file.");
+    return;
+  }
+
+  try {
+    const text = await file.text();
+
+    JSON.parse(text); // validate
+
+    setJson(text);
+    setErr("");
+  } catch {
+    setMsg("");
+    setErr("Selected file is not valid JSON.");
+  } finally {
+    e.target.value = ""; // reset file input so the same file can be selected again
+  }
+}
+
   async function handleImport() {
     setIsImporting(true);
-    setErr(""); setMsg("");
+    setErr(""); 
+    setMsg("");
     let items: unknown[];
     try { items = JSON.parse(json); if (!Array.isArray(items)) throw new Error("Expected a JSON array"); }
     catch (e) { 
@@ -91,7 +126,13 @@ export default function QuestionBankPage() {
       const comps = await listCompetencies();
       setCompetencies(comps);
 
-    } catch (e) { setErr(e instanceof Error ? e.message : "Import failed"); }
+    } catch (e) {
+        setErr(
+          e instanceof Error 
+            ? e.message  
+            : "Import failed"
+          ); 
+      }
     finally{
       setIsImporting(false);
       setLoadingQuestions(false);
@@ -219,15 +260,48 @@ export default function QuestionBankPage() {
         </table>
       </Card>
 
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json,application/json"
+        onChange={handleFileSelected}
+        className="hidden"
+      />
+
       <Card className="mt-8 space-y-4">
       <h2 className="text-lg font-semibold mb-4">
-        Import Question Bank
+        Upload Question Bank
       </h2>
       <input className="w-full rounded-md border border-gray-300 bg-white p-2 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
         placeholder="Set name (optional)" value={setName} onChange={(e) => setSetName(e.target.value)} />
+      
+      <div className="flex gap-3 mb-4">
+        <Button
+          type="button"
+          onClick={openFilePicker}
+          disabled={isImporting}
+        >
+          Import JSON File
+        </Button>
+
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={() => {
+            setJson("");
+            setSetName("");
+            setErr("");
+            setMsg("");
+            fileInputRef.current && (fileInputRef.current.value = ""); // reset file input so the same file can be selected again
+          }}
+        >
+          Clear
+        </Button>
+      </div>
+
       <textarea className="w-full rounded-md border border-gray-300 bg-white p-3 font-mono min-h-[350px] dark:border-gray-700 dark:bg-gray-800 dark:text-white"
         value={json} onChange={(e) => setJson(e.target.value)} 
-        placeholder='[{"source_ref":"...","track":{...},"sub_competency":{...},"tool_type":"mcq","difficulty":"easy","body":"...","payload":{...}}]' />
+        placeholder='[{"source_ref":"...","track":{...},"sub_competency":{...},"tool_type":"mcq","difficulty":3,"body":"...","payload":{...}}]' />
       <Button onClick={handleImport} disabled={!json.trim() || isImporting}>
         {isImporting ? "Importing..." : "Import Question Bank"}
       </Button>
