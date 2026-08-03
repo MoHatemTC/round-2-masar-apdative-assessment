@@ -25,6 +25,9 @@ def test_get_question_does_not_return_answer_keys(client, fake_db):
 
     assert response.status_code == 200
 
-    body = response.json()
+    raw = response.text
 
-    assert "payload" not in body
+    assert "correct_id" not in raw
+    assert "answer_key" not in raw
+    assert "rubric" not in raw
+    assert "test_cases" not in raw
