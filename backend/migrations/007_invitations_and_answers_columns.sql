@@ -15,6 +15,8 @@
 -- candidate link 404s at candidate_intake.py's is_published check.
 --
 -- Safe to re-run: every ALTER uses ADD COLUMN IF NOT EXISTS.
+-- One-time backfill. Assumes no assessment was ever deliberately unpublished —
+-- remove this once "draft" is a real state.
 -- ============================================================================
 
 ALTER TABLE invitations
