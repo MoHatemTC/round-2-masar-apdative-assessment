@@ -27,6 +27,7 @@ from app.services.question_bank import generate_fallback_question
 from app.schemas.question_types import validate_question_payload
 from app.services.selection import select_competency_question
 from app.services.grading import grade_answer
+from datetime import datetime, timezone
 import logging
 import copy
 logger = logging.getLogger(__name__)

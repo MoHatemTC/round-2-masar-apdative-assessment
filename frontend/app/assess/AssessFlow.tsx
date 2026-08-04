@@ -20,6 +20,41 @@ import RatingScale from "@/components/ui/RatingScale";
 
 type Step = "loading" | "invalid-link" | "welcome" | "intake" | "loop" | "done";
 
+const SESSION_STORAGE_PREFIX = "assess-session:";
+
+// Persists {sessionId, question} to localStorage, keyed by the URL token, so a
+// hard reload can resume straight into the current question instead of
+// calling startSession() again (which always inserts a brand-new session row)
+// or calling /chat/turn again (which isn't safe to resume with — pick_question
+// has no idempotency check and would silently serve a different question).
+function loadSavedSession(token: string): { sessionId: string; question: Question | null } | null {
+  try {
+    const raw = localStorage.getItem(SESSION_STORAGE_PREFIX + token);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.sessionId) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function saveSession(token: string, sessionId: string, question: Question | null) {
+  try {
+    localStorage.setItem(SESSION_STORAGE_PREFIX + token, JSON.stringify({ sessionId, question }));
+  } catch {
+    // best-effort — worst case a refresh just restarts the session, same as today
+  }
+}
+
+function clearSavedSession(token: string) {
+  try {
+    localStorage.removeItem(SESSION_STORAGE_PREFIX + token);
+  } catch {
+    // ignore
+  }
+}
+
 export default function AssessFlow() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
@@ -41,19 +76,32 @@ export default function AssessFlow() {
   const [loopError, setLoopError] = useState<string | null>(null);
 
   // Step 1: resolve the share-link token into which assessment + competencies to show.
+  // Step 1: resolve the share-link token into which assessment + competencies to show.
   useEffect(() => {
     if (!token) {
       setStep("invalid-link");
       return;
     }
+
+    const resumed = loadSavedSession(token);
+    if (resumed) {
+      setSessionId(resumed.sessionId);
+      if (resumed.question) {
+        setQuestion(resumed.question);
+        setStep("loop");
+      } else {
+        setStep("intake");
+      }
+    }
+
     getAssessmentByToken(token)
       .then((info) => {
         setAssessment(info);
-        setStep("welcome");
+        if (!resumed) setStep("welcome");
       })
       .catch((err) => {
         setLoadError(err instanceof Error ? err.message : "Could not load this assessment link.");
-        setStep("invalid-link");
+        if (!resumed) setStep("invalid-link");
       });
   }, [token]);
 
@@ -64,6 +112,7 @@ export default function AssessFlow() {
     try {
       const { session_id } = await startSession(assessment.assessment_id, token);
       setSessionId(session_id);
+      if (token) saveSession(token, session_id, null);
       setStep("intake");
     } catch (err) {
       setIntakeError(err instanceof Error ? err.message : "Could not start the assessment.");
@@ -120,8 +169,10 @@ export default function AssessFlow() {
         setDone(r.emit);
         setQuestion(null);
         setStep("done");
+        if (token) clearSavedSession(token);
       } else {
         setQuestion(r.emit as Question);
+        if (token) saveSession(token, sessionId, r.emit as Question);
       }
     } catch (err) {
       // Without this, a failed turn (network issue, or a not-yet-implemented backend route)

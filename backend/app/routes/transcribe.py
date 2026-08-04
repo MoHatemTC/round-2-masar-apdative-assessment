@@ -90,6 +90,8 @@ async def submit_voice_answer(
         "id", question_id
     ).maybe_single().execute()
     question = _row(question_resp) or {}
+    logger.info(f"Received question_id: {question_id}")
+    logger.info(f"Question lookup result: {question}")
     
     base_row = {
         "session_id": session_id,
@@ -196,10 +198,20 @@ async def submit_voice_answer(
         return {"status": "already_submitted", "answer": _row(existing)}
 
     filename = f"{session_id}/{question_number}-{uuid.uuid4()}.webm"
-    bucket = db.storage.from_("candidate-audio")
-    await bucket.upload(filename, raw, {"content-type": "audio/webm"})
-
-    stt_result = await call_stt(raw, filename, session_id=session_id)
+    try:
+        bucket = db.storage.from_("candidate-audio")
+        await bucket.upload(filename, raw, {"content-type": "audio/webm"})
+        stt_result = await call_stt(raw, filename, session_id=session_id)
+    except Exception as e:
+        logger.error(f"upload/STT failed: {type(e).__name__}: {e}")
+        answer = await finalize(claimed["id"], {
+            "audio_url": filename,
+            "transcript": None,
+            "score": None,
+            "rationale": "Upload or transcription failed — flagged for manual review.",
+            "flagged": True,
+        })
+        return {"status": "submitted", "answer": answer}
 
     if not stt_result["success"]:
         answer = await finalize(claimed["id"], {

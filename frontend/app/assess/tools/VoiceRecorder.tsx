@@ -48,7 +48,8 @@ export default function VoiceRecorder({ question, onSubmit, isSubmitting = false
 
   useEffect(() => {
     if (checkingExisting || alreadyAnswered) return;
-    if (secondsLeft <= 0) {
+    if (recordState !== "recording") return; // don't tick until the candidate actually starts recording
+    if (secondsLeft === 0) {
         if (!hasAutoSubmitted.current) {
             hasAutoSubmitted.current = true;
             handleTimeUp();
@@ -57,7 +58,7 @@ export default function VoiceRecorder({ question, onSubmit, isSubmitting = false
   }
   const timer = setTimeout(() => setSecondsLeft((s) => s - 1), 1000);
   return () => clearTimeout(timer);
-}, [secondsLeft, checkingExisting, alreadyAnswered]);
+}, [secondsLeft, checkingExisting, alreadyAnswered, recordState]);
 
   useEffect(() => {
   async function checkExisting() {
@@ -75,12 +76,18 @@ export default function VoiceRecorder({ question, onSubmit, isSubmitting = false
   }
   checkExisting();
 }, [sessionId, questionNumber]);
-  async function handleTimeUp() {
-  if (recordState === "recording") {
-    await stopRecordingAndWait();
-  }
-  await submitWhatWeHave(true);
+
+
+async function handleTimeUp() {
+  if (recordState !== "recording") return;
+
+  await stopRecordingAndWait();
+
+  setRecordError(
+    "Recording time has ended. You can submit or re-record."
+  );
 }
+
   async function startRecording() {
     setRecordError(null);
     try {
@@ -144,13 +151,16 @@ export default function VoiceRecorder({ question, onSubmit, isSubmitting = false
   }
 
   function handleReRecord() {
-    // Nothing was ever uploaded — just discard the in-memory blob and go again.
-    finalBlobRef.current = null;
-    finalDurationRef.current = 0;
-    setRecordError(null);
-    setRecordState("idle");
-    chunksRef.current = [];
-  }
+  finalBlobRef.current = null;
+  finalDurationRef.current = 0;
+  chunksRef.current = [];
+
+  setRecordError(null);
+  setRecordState("idle");
+
+  setSecondsLeft(timeLimit);
+  hasAutoSubmitted.current = false;
+}
 
 async function postVoiceAnswer(formData: FormData): Promise<{ ok: boolean; detail: string }> {
   const res = await fetch(
