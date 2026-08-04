@@ -83,8 +83,8 @@ export interface SandboxRunResult {
 
 export interface CompetencyResult {
   competency_id: string;
-  level: number;
-  confidence: number;
+  final_level: number;
+  final_confidence: number;
   questions_asked: number;
   converged_reason: string;
 }
@@ -191,10 +191,20 @@ export async function turn(params: {
 }
 
 // ---- Report ----
-// NOTE: only an admin-facing report route exists (/admin/sessions/{id}/report) as of this
-// writing. No candidate-facing /report/{id} route exists yet.
 export async function getReport(sessionId: string): Promise<SessionReport> {
   return apiRequest<SessionReport>(`/admin/sessions/${sessionId}/report`);
+}
+
+export interface CandidateReport {
+  session_id: string;
+  overall_pct: number;
+  level_label: string;
+  has_low_confidence: boolean;
+  competency_results: { competency_id: string; final_level: number; final_confidence: number; questions_asked: number }[];
+}
+
+export async function getCandidateReport(sessionId: string): Promise<CandidateReport> {
+  return apiRequest<CandidateReport>(`/report/${sessionId}`);
 }
 
 export async function submitAnswer(params: {
@@ -229,6 +239,23 @@ export async function importBank(
 
 export async function getAssessments(): Promise<Assessment[]> {
   return apiRequest<Assessment[]>("/admin/assessments");
+}
+
+export interface Session {
+  id: string;
+  assessment_id: string | null;
+  candidate_name: string | null;
+  candidate_email: string | null;
+  status: string;
+  created_at: string;
+  completed_at: string | null;
+  overall_pct?: number;
+  level_label?: string;
+  has_low_confidence?: boolean;
+}
+
+export async function getSessions(): Promise<Session[]> {
+  return apiRequest<Session[]>("/admin/sessions");
 }
 
 export async function getInvitations(assessmentId: string): Promise<Invitation[]> {

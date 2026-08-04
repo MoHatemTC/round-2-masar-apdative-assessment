@@ -317,6 +317,44 @@ async def list_assessments(db: AsyncClient = Depends(get_db)):
     return response.data
 
 
+@router.get("/sessions")
+async def list_sessions(db: AsyncClient = Depends(get_db)):
+    sessions_resp = await db.table("sessions").select(
+        "id, assessment_id, candidate_name, candidate_email, status, created_at, completed_at"
+    ).execute()
+    sessions = sessions_resp.data or []
+
+    completed_ids = [s["id"] for s in sessions if s["status"] == "completed"]
+
+    reports_map: dict = {}
+    if completed_ids:
+        reports_resp = await db.table("final_reports").select(
+            "session_id, overall_pct, level_label, has_low_confidence"
+        ).in_("session_id", completed_ids).execute()
+        for r in (reports_resp.data or []):
+            reports_map[r["session_id"]] = r
+
+    results = []
+    for s in sessions:
+        row = {
+            "id": s["id"],
+            "assessment_id": s.get("assessment_id"),
+            "candidate_name": s.get("candidate_name"),
+            "candidate_email": s.get("candidate_email"),
+            "status": s["status"],
+            "created_at": s.get("created_at"),
+            "completed_at": s.get("completed_at"),
+        }
+        report = reports_map.get(s["id"])
+        if report:
+            row["overall_pct"] = report.get("overall_pct")
+            row["level_label"] = report.get("level_label")
+            row["has_low_confidence"] = report.get("has_low_confidence")
+        results.append(row)
+
+    return results
+
+
 @router.get("/sessions/{session_id}/report")
 async def get_report(session_id: str, db: AsyncClient = Depends(get_db)):
     session_response = await db.table("sessions").select("status").eq("id", session_id).execute()
