@@ -146,17 +146,17 @@ async def upload_reference(
     path = f"{session_id}/reference.jpg"
     await _upload_to_storage(db, path, data)
 
-    # The unique index on (session_id) WHERE kind='reference' guarantees at most
-    # one row here — a retry after a successful upload would 409, which is
-    # correct: the UI hides "retake" after confirmation.
-    await db.table("proctoring_captures").insert(
+    # Upsert: if a reference row already exists (retry / retake), replace it
+    # instead of failing with a unique-constraint violation.
+    await db.table("proctoring_captures").upsert(
         {
             "session_id": session_id,
             "question_number": None,
             "kind": "reference",
             "storage_path": path,
             "analysis_status": "pending",
-        }
+        },
+        on_conflict="session_id,kind",
     ).execute()
 
     return {"ok": True, "storage_path": path}
