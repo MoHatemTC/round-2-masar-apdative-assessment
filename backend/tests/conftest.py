@@ -38,7 +38,7 @@ class FakeResult:
 
     def __init__(
         self,
-        data: list[dict],
+        data: Any,
     ):
         self.data = data
 
@@ -76,6 +76,8 @@ class FakeQuery:
         self._payload: dict | None = None
 
         self._conflict: str | None = None
+
+        self._single = False
 
         self._filters: list[
             tuple[str, Any]
@@ -160,34 +162,25 @@ class FakeQuery:
         self._filters.append((field, set(values)))
         return self
 
+    def single(self) -> "FakeQuery":
+        self._single = True
+        return self
+
 
        # -----------------------------------------------------
     # Helpers
     # -----------------------------------------------------
 
     def _rows(self) -> list[dict]:
-        """
-        Return the backing table, creating it if needed.
-        """
-        return self._tables.setdefault(
-            self._table_name,
-            [],
-        )
+        return self._tables.setdefault(self._table_name, [])
 
-
-    def _matches(
-        self,
-        row: dict,
-    ) -> bool:
-        """
-        Check whether a row satisfies all filters.
-        Supports both eq() and in_().
-        """
-
+    def _matches(self, row: dict) -> bool:
         def one(field: str, value: Any) -> bool:
             if isinstance(value, set):
                 return row.get(field) in value
-            return row.get(field) == value
+
+            row_value = row.get(field)
+            return str(row_value) == str(value)
 
         return all(
             one(field, value)
@@ -224,13 +217,16 @@ class FakeQuery:
 
         if self._op == "select":
 
-            return FakeResult(
-                [
-                    row
-                    for row in rows
-                    if self._matches(row)
-                ]
-            )
+            matched = [
+                row
+                for row in rows
+                if self._matches(row)
+            ]
+
+            if self._single:
+                return FakeResult(matched[0] if matched else None)
+
+            return FakeResult(matched)
 
         # -----------------------------
         # UPDATE
@@ -384,12 +380,11 @@ def client(
 ):
 
     from app.routes import candidate_intake
+    from app.api.routers import questions
 
 
     async def _fake_get_db():
-
         return fake_db
-
 
 
     monkeypatch.setattr(
@@ -398,8 +393,10 @@ def client(
         _fake_get_db,
     )
 
-
-
     app = FastAPI()
+    
+    app.dependency_overrides[questions.get_supabase] = _fake_get_db
+
     app.include_router(candidate_intake.router)
+    app.include_router(questions.router)
     return TestClient(app)

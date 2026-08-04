@@ -4,8 +4,8 @@ One HTTP turn = one call to `run_turn`. The whole loop state lives in `sessions.
 and is round-tripped every turn (stateless server, resumable client). Follow docs/ARCHITECTURE.md.
 
 Flow per turn:
-  • not initialized       → init_session, then pick a question
-  • answer came in        → grade → estimate → check_convergence → pick the next question
+  • not initialized      → init_session, then pick a question
+  • answer came in       → grade → estimate → check_convergence → pick the next question
   • all competencies done → finalize
 
 Fill in every TODO. Keep the golden rules:
@@ -14,9 +14,22 @@ Fill in every TODO. Keep the golden rules:
   - idempotent + resumable
 """
 from __future__ import annotations
+import os
+import asyncio
+
+from app.estimator.engine import estimate_level
+from app.estimator.contract import EstimatorInput
+from app.estimator.types import Difficulty
+from app.services.prior import compute_prior
+from app.services.question_bank import cv_estimate_levels
+from app.services.question_bank import personalize_question
+from app.services.question_bank import generate_fallback_question
+from app.schemas.question_types import validate_question_payload
 from app.services.selection import select_competency_question
 from app.services.grading import grade_answer
-from app.services.estimation import estimate_level
+import logging
+import copy
+logger = logging.getLogger(__name__)
 
 # ── Tunable convergence knobs (start here; see ARCHITECTURE.md) ──────────────
 CONFIDENCE_TARGET = 0.90
@@ -53,18 +66,18 @@ def _confidence_ceiling(questions_asked: int) -> float:
 
 def _public_payload(payload: dict | None) -> dict:
     """Strip answer-bearing fields before a question goes to the browser."""
-    payload = dict(payload or {})
+    payload = dict(payload or {}) 
+    public_cases = payload.pop("public_test_cases", None)
 
-    if "public_test_cases" in payload:
-        payload["test_cases"] = payload["public_test_cases"]
-
-    payload.pop("public_test_cases", None)
-
-    return {
+    clean = {
         k: v
-        for k, v in payload.items()
+        for k, v in (payload or {}).items()
         if k not in _ANSWER_KEYS
     }
+
+    if public_cases is not None:
+        clean["test_cases"] = public_cases
+    return clean
 
 
 # ── The turn entrypoint ──────────────────────────────────────────────────────
@@ -86,35 +99,71 @@ async def run_turn(db, session: dict, state: dict, tool_result: dict | None) -> 
 async def init_session(db, session: dict, state: dict) -> None:
     """Once per session. Build the per-competency starting belief."""
     assessment_id = session.get("assessment_id")
-    
+
     # 1. Load the assessment's competency_ids
     assess_res = await db.table("assessments").select("*").eq("id", assessment_id).maybe_single().execute()
     assessment = assess_res.data or {}
     comp_ids = assessment.get("competency_ids", [])
+    competency_queue = []
+
+    if comp_ids:
+        response = await (
+            db.table("competencies")
+            .select("id,name,code")
+            .in_("id", comp_ids)
+            .execute()
+        )
+
+        competency_queue = [
+            {
+                "id": c["id"],
+                "name": c.get("name") or c.get("code"),
+            }
+            for c in response.data
+        ]
 
     # 2. Read self-ratings (1–5) from intake
     intake = session.get("intake_answers", {})
-    
+
     state["queue"] = comp_ids
     state["active_index"] = 0
     state["initialized"] = True
     state["question_language"] = assessment.get("language", "en")
     state["question_set_id"] = assessment.get("question_set_id")
     state["per_competency"] = {}
-    
+
     # Initialize Bayesian prior parameters per competency
+    cv_json = session.get("cv_json")
+    cv_levels = {}
+
+    if cv_json:
+        try:
+            cv_levels = await cv_estimate_levels(
+                cv_json,
+                competency_queue,
+                session["id"],
+            )
+        except Exception as e:
+            logger.warning(f"CV estimation failed: {e}")
+            cv_levels = {}
+    
     for cid in comp_ids:
-        self_rating = intake.get(cid, 3)
-        # 3 & 4. Mocking cv_estimate blend for now; default to self_rating
-        start = self_rating
+        self_rating = intake.get(cid)
+        
+        cv_level = cv_levels.get(cid)
+        start = compute_prior(
+            self_rating=self_rating,
+            cv_estimate=cv_level,
+        )
         
         # Seed the Bayesian posterior peaked on `start` at low confidence
         posterior = [0.1] * 5
-        posterior[start - 1] = 0.6 
-        
+        posterior[start - 1] = 0.6
+
         # 5. Populate state tracking dicts
         state["per_competency"][cid] = {
             "self_rating": self_rating,
+            "cv_estimate": cv_level,
             "initial_estimate": start,
             "level": start,
             "confidence": 0.0,
@@ -123,6 +172,7 @@ async def init_session(db, session: dict, state: dict) -> None:
             "questions_asked": 0,
             "used_ids": [],
             "asked_types": {},
+            "generated_questions": [],
             "converged": False
         }
 
@@ -131,23 +181,29 @@ async def pick_question(db, session: dict, state: dict) -> dict:
     """Emit the next question, or finalize when all competencies converged."""
     queue = state.get("queue", [])
     pc_dict = state.get("per_competency", {})
-    
+
     # 1. Advance active_index past converged competencies.
     while state["active_index"] < len(queue):
         cid = queue[state["active_index"]]
         if not pc_dict[cid].get("converged"):
             break
         state["active_index"] += 1
-        
+
     # If none left → finalize
     if state["active_index"] >= len(queue):
         return await finalize(db, session, state)
-        
+
     cid = queue[state["active_index"]]
     pc = pc_dict[cid]
     
-    # 2. Difficulty-adaptive logic: aim at the current estimate
-    target_difficulty = round(pc["level"])
+    # 2. Difficulty-adaptive logic: aim at the current estimate[cite: 2]
+    target_difficulty = max(
+        1,
+        min(
+            5,
+            round(pc["level"])
+        )
+    )
     
     # 3. Call selection service with difficulty and type counts
     q = await select_competency_question(
@@ -158,60 +214,134 @@ async def pick_question(db, session: dict, state: dict) -> dict:
         tool_type_counts=pc.get("asked_types", {}),
         question_set_id=state.get("question_set_id")
     )
+
+    cv_json = session.get("cv_json")
+    if q and cv_json:
+        try:
+            original_question = copy.deepcopy(q) if q else None
+            cv_text = (
+                cv_json.get("raw_text")
+                or cv_json.get("summary")
+                or ""
+            )
+
+            personalized = await personalize_question(
+                bank_q=q,
+                cv_context=cv_text,
+                session_id=session["id"],
+            )
+
+        # Preserve grading fields
+            q = personalized
+            errors = validate_question_payload(
+                q.get("tool_type"),
+                q.get("body"),
+                q.get("payload"),
+            )
+
+            if errors:
+                q = original_question
+
+        except Exception as e:
+            logger.warning(f"Personalization failed: {e}")
+            q=original_question
     
     # 4. Bank exhaustion handling
     if not q:
-        pc["converged"] = True
-        pc["converged_reason"] = "max_questions"
-        state["active_index"] += 1
-        return await pick_question(db, session, state)
-        
+        try:
+            q = await generate_fallback_question(
+                competency_id=cid,
+                difficulty=target_difficulty,
+            )
+            if q.get("tool_type") != "voice":
+                raise ValueError("Fallback must be voice")
+
+            errors = validate_question_payload(
+                q.get("tool_type"),
+                q.get("body"),
+                q.get("payload"),
+            )
+
+            if errors:
+                raise ValueError(f"Invalid fallback question: {errors}")
+
+            body = q.get("body").strip()
+            if not body:
+                raise ValueError("Fallback question missing body")
+
+            if body in pc["generated_questions"]:
+                raise ValueError("Repeated fallback question")
+
+            pc["generated_questions"].append(body)
+
+        except Exception as e:
+            logger.warning(f"Fallback generation failed: {e}")
+            pc["converged"] = True
+            pc["converged_reason"] = "fallback_failed"
+            state["active_index"] += 1
+
+            return await pick_question(
+              db,
+                session,
+                state,
+            )
+      
     # 5. Lock in the question state for the upcoming grade cycle
     state["current_question"] = q
     q_num = state.get("question_number", 0) + 1
     state["question_number"] = q_num
     
-    # 6. Emit sanitized payload to frontend
+    # 6. Emit sanitized payload to frontend    
     state["_emit"] = {
+        "id": q.get("id"),
         "question_number": q_num,
         "body": q.get("body"),
         "tool_type": q.get("tool_type"),
         "payload": _public_payload(q.get("payload"))
     }
+    
     return state
 
 
 async def grade(db, session: dict, state: dict, tool_result: dict) -> None:
-    """Grade the answer to state['current_question'] → 0–5 + rationale; write to `answers`."""
     q = state.get("current_question", {})
     tool_type = q.get("tool_type")
-    
-    # Grade the answer defensively using the teammate's contract
-    result = await grade_answer(tool_type, q, tool_result, session["id"])
-    
-    # Persist the answer with the unique resumability constraint applied in DB migration
-    answer_row = {
-        "session_id": session["id"],
-        "question_number": state.get("question_number"),
-        "question_id": q.get("id"),
-        "question_body": q.get("body"),
-        "competency_id": q.get("competency_id"),
-        "tool_type": q.get("tool_type"),
-        "score": result.get("score"),
-        "rationale": result.get("rationale"),
-        "answer_text": str(tool_result) if isinstance(tool_result, dict) else str(tool_result)
-    }
-    # Make grading idempotent: if a retry hits this, it safely overwrites the same score
-    await db.table("answers").upsert(answer_row, on_conflict="session_id,question_number").execute()
-    
+
+    if tool_type == "voice" and isinstance(tool_result, dict) and tool_result.get("pregraded"):
+        # /voice-answer already graded and persisted this — re-read our own stored,
+        # trusted row rather than trusting anything the client sent.
+        existing = await db.table("answers").select("score,rationale,flagged").eq(
+            "session_id", session["id"]
+        ).eq("question_number", state.get("question_number")).maybe_single().execute()
+        row = existing.data if existing is not None else None
+        result = {
+            "score": row.get("score") if row else None,
+            "rationale": row.get("rationale") if row else "Pregraded row not found — flagged for review.",
+            "flagged": row.get("flagged", True) if row else True,
+        }
+    else:
+        result = await grade_answer(tool_type, q, tool_result, session["id"])
+
+        answer_row = {
+            "session_id": session["id"],
+            "question_number": state.get("question_number"),
+            "question_id": q.get("id"),
+            "question_body": q.get("body"),
+            "competency_id": q.get("competency_id"),
+            "tool_type": q.get("tool_type"),
+            "score": result.get("score"),
+            "rationale": result.get("rationale"),
+            "answer_text": str(tool_result) if isinstance(tool_result, dict) else str(tool_result)
+        }
+        await db.table("answers").upsert(answer_row, on_conflict="session_id,question_number").execute()
+
     state["_grading"] = result
-    
-    # Update tracking for used questions and asked tool types
+
     cid = q.get("competency_id")
     pc = state["per_competency"][cid]
     pc["used_ids"].append(str(q.get("id")))
     pc["questions_asked"] += 1
-    
+
     t_types = pc.get("asked_types", {})
     t_types[tool_type] = t_types.get(tool_type, 0) + 1
     pc["asked_types"] = t_types
@@ -221,52 +351,54 @@ async def estimate(db, session: dict, state: dict) -> None:
     """Bayesian update of the active competency's 1–5 posterior from the latest grade."""
     grading = state.get("_grading", {})
     q = state.get("current_question", {})
-    
-    # Defensive programming: Do not estimate if grading failed
+
     if grading.get("flagged", False) or grading.get("score") is None:
         return
-        
+
     cid = q.get("competency_id")
     pc = state["per_competency"][cid]
-    
-    # 1. Map difficulty to the 1-5 scale
-    diff_raw = q.get("difficulty", "medium")
-    diff_val = 3
-    if isinstance(diff_raw, str):
-        d = diff_raw.lower()
-        if d == "easy": diff_val = 2
-        elif d == "hard": diff_val = 4
-    elif isinstance(diff_raw, (int, float)):
-        diff_val = round(diff_raw)
-        
-    # 2. Update posterior deterministically without LLM calls
-    res = estimate_level(pc["posterior"], grading["score"], diff_val)
-    
-    # 3. Apply results
-    pc["posterior"] = res["posterior"]
-    pc["level"] = res["level"]
-    
-    # 4. Cap confidence ceiling to prevent one answer from triggering an early stop
-    raw_conf = res.get("confidence", 0.0)
-    ceiling = _confidence_ceiling(pc["questions_asked"])
-    pc["confidence"] = min(raw_conf, ceiling)
-    
-    # 5. Append history for stable-convergence check
-    pc["level_history"].append(pc["level"])
 
+    # Map the question's difficulty to the Difficulty enum, defaulting to MEDIUM for anything unrecognized
+    diff_raw = q.get("difficulty", "medium")
+    try:
+        difficulty = Difficulty(str(diff_raw).lower())
+    except ValueError:
+        difficulty = Difficulty.MEDIUM
+
+    # Convert list-style posterior (index 0-4 = levels 1-5) to the dict shape the real contract expects
+    posterior_dict = {level: pc["posterior"][level - 1] for level in range(1, 6)}
+
+    estimator_input = EstimatorInput(
+        posterior=posterior_dict,
+        score=int(round(grading["score"])),
+        difficulty=difficulty,
+        question_count=pc["questions_asked"],
+        level_history=pc["level_history"],
+    )
+
+    res = estimate_level(estimator_input)
+
+    # Convert dict-style posterior back to the list shape the rest of adaptive_loop.py uses
+    pc["posterior"] = [res.posterior[level] for level in range(1, 6)]
+    pc["level"] = res.level
+
+    ceiling = _confidence_ceiling(pc["questions_asked"])
+    pc["confidence"] = min(res.confidence, ceiling)
+
+    pc["level_history"].append(pc["level"])
 
 async def check_convergence(db, session: dict, state: dict) -> None:
     """Mark the active competency converged when confident / stable / capped."""
     q = state.get("current_question")
     if not q:
         return
-        
+
     cid = q.get("competency_id")
     pc = state["per_competency"][cid]
-    
+
     reason = None
-    
-    # Evaluate stopping conditions
+
+    # Evaluate stopping conditions[cite: 1]
     if pc["confidence"] >= CONFIDENCE_TARGET:
         reason = "confidence"
     elif pc["questions_asked"] >= MAX_QUESTIONS:
@@ -275,35 +407,29 @@ async def check_convergence(db, session: dict, state: dict) -> None:
         last_levels = pc["level_history"][-STABLE_WINDOW:]
         if len(set(last_levels)) == 1:
             reason = "stable"
-            
+
     # Mark converged and persist snapshot
     if reason:
         pc["converged"] = True
         pc["converged_reason"] = reason
+        pc["low_confidence"] = (
+            reason == "max_questions"
+            or reason == "fallback_failed"
+        )
         
         from app.services.scoring import competency_result_from_state, session_competency_result_row
         result = competency_result_from_state(cid, pc)
         row = session_competency_result_row(session["id"], pc, result)
         await db.table("session_competency_results").upsert(row, on_conflict="session_id,competency_id").execute()
-        
+
         # Clear question context so pick_question handles the next queue item
         state["current_question"] = None
 
 
 async def finalize(db, session: dict, state: dict) -> dict:
     """Compute per-competency level → %/band, overall %, write final_reports, mark the
-    session completed, set _complete.
+    session completed, set _complete, and dispatch completion emails."""
 
-    All scoring math (pct = level*20, band mapping, the low-confidence rule) is
-    delegated to app.services.scoring — the Scoring, Reporting, Email & Observability
-    lane — so this function only orchestrates reading state and writing rows. See
-    app/services/scoring.py and backend/migrations/005_reports.sql for the schema and
-    the tested scoring logic.
-
-    TODO (outside the scoring lane's current scope): send report + admin emails, log
-    each send. finalize() sets state['_complete']/state['_emit'] so the email step can
-    be added here later without touching the scoring/persistence logic above it.
-    """
     from datetime import datetime, timezone
 
     from app.services.scoring import (
@@ -311,6 +437,9 @@ async def finalize(db, session: dict, state: dict) -> dict:
         final_report_row,
         session_competency_result_row,
     )
+
+    # Import our new email service functions
+    from app.services.email import send_report_background, send_admin_notification_background
 
     per_competency: dict = state.get("per_competency", {})
     if not per_competency:
@@ -340,11 +469,40 @@ async def finalize(db, session: dict, state: dict) -> dict:
         .execute()
     )
 
+    # =========================================================
+    # EMAIL DISPATCH (Non-Blocking)
+    # =========================================================
+    candidate_email = session.get("candidate_email")
+    admin_email = os.environ.get("ADMIN_EMAIL", "admin@yourdomain.com")
+
+    # Dispatch candidate report email
+    if candidate_email:
+        asyncio.create_task(
+            send_report_background(
+                db,
+                to=candidate_email,
+                overall_pct=report_row.get("overall_pct", 0),
+                band=report_row.get("level_label", "Unknown"),
+                has_low_confidence=report_row.get("has_low_confidence", False)
+            )
+        )
+
+    # Dispatch admin notification email
+    if admin_email:
+        asyncio.create_task(
+            send_admin_notification_background(
+                db,
+                admin_email=admin_email,
+                session_id=str(session["id"])
+            )
+        )
+
     state["_complete"] = True
     state["_emit"] = {
         "type": "complete",
         "message": "Assessment complete — your report is ready.",
-        "overall_pct": report_row["overall_pct"],
-        "level_label": report_row["level_label"],
+        "overall_pct": report_row.get("overall_pct"),
+        "level_label": report_row.get("level_label"),
+        "has_low_confidence": report_row.get("has_low_confidence", False),
     }
     return state

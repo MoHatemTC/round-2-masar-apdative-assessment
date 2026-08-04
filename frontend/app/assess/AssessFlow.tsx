@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import {
   turn,
   type ToolResult,
+  type Question,
   getAssessmentByToken,
   startSession,
   submitIntake,
@@ -12,6 +13,7 @@ import {
   type AssessmentInfo,
 } from "@/lib/api";
 import { getAnswerComponent } from "./tools/registry";
+import CompletionReport from "./CompletionReport";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import RatingScale from "@/components/ui/RatingScale";
@@ -33,7 +35,7 @@ export default function AssessFlow() {
   const [intakeError, setIntakeError] = useState<string | null>(null);
   const [intakeSubmitting, setIntakeSubmitting] = useState(false);
 
-  const [question, setQuestion] = useState<any>(null);
+  const [question, setQuestion] = useState<Question | null>(null);
   const [done, setDone] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loopError, setLoopError] = useState<string | null>(null);
@@ -60,7 +62,7 @@ export default function AssessFlow() {
     setIntakeSubmitting(true);
     setIntakeError(null);
     try {
-      const { session_id } = await startSession(assessment.assessment_id);
+      const { session_id } = await startSession(assessment.assessment_id, token);
       setSessionId(session_id);
       setStep("intake");
     } catch (err) {
@@ -109,13 +111,17 @@ export default function AssessFlow() {
     setIsSubmitting(true);
     setLoopError(null);
     try {
-      const r = await turn({ session_id: sessionId, tool_result: toolResult });
+      const r = await turn({
+        session_id: sessionId,
+        question_number: toolResult ? question?.question_number : undefined,
+        tool_result: toolResult,
+      });
       if (r.complete) {
         setDone(r.emit);
         setQuestion(null);
         setStep("done");
       } else {
-        setQuestion(r.emit);
+        setQuestion(r.emit as Question);
       }
     } catch (err) {
       // Without this, a failed turn (network issue, or a not-yet-implemented backend route)
@@ -129,6 +135,9 @@ export default function AssessFlow() {
   }
 
   const AnswerComponent = question ? getAnswerComponent((question as any).tool_type) : null;
+
+  const allCompetenciesRated =
+  assessment?.competencies.every((c) => ratings[c.id] !== undefined) ?? false;
 
   if (step === "loading") {
     return (
@@ -163,6 +172,19 @@ export default function AssessFlow() {
             adaptive questions.
           </p>
           {intakeError && <p className="text-sm text-red-600">{intakeError}</p>}
+      
+          <div className="rounded-md bg-gray-100 dark:bg-neutral-800 p-4">
+            <h3 className="font-medium">Assessment Summary</h3>
+
+            <p className="mt-2 text-sm">
+              Competencies:
+              <strong> {assessment.competencies.length}</strong>
+            </p>
+
+            <p className="text-sm">
+              Adaptive questions based on your responses.
+            </p>
+          </div>
           <Button onClick={beginIntake} disabled={intakeSubmitting}>
             {intakeSubmitting ? "Starting…" : "Begin Assessment"}
           </Button>
@@ -201,7 +223,7 @@ export default function AssessFlow() {
             </label>
             <input
               type="file"
-              accept=".pdf,.txt"
+              accept=".pdf,.doc,.docx,.txt"
               disabled={cvUploading || intakeSubmitting}
               onChange={(e) => {
                 const file = e.target.files?.[0];
@@ -223,7 +245,10 @@ export default function AssessFlow() {
 
           {intakeError && <p className="text-sm text-red-600">{intakeError}</p>}
 
-          <Button onClick={submitIntakeAndBegin} disabled={intakeSubmitting}>
+          <Button
+            onClick={submitIntakeAndBegin}
+            disabled={!allCompetenciesRated || intakeSubmitting}
+          >
             {intakeSubmitting ? "Starting…" : "Continue to Assessment"}
           </Button>
         </Card>
@@ -245,21 +270,39 @@ export default function AssessFlow() {
 
       {question && AnswerComponent && (
         <AnswerComponent
+          key={(question as any).question_number ?? (question as any).id}
           question={question}
           onSubmit={(result: ToolResult) => next(result)}
           isSubmitting={isSubmitting}
+          sessionId={sessionId}
+          questionNumber={(question as any).question_number}
         />
       )}
       {question && !AnswerComponent && (
         <p className="text-red-600">Unsupported question type: {(question as any).tool_type}</p>
       )}
       {done && (
-        <Card>
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">Done</h2>
-          <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">
-            {JSON.stringify(done, null, 2)}
-          </pre>
-        </Card>
+        <>
+          <Card className="text-center py-8">
+            <h2 className="text-2xl font-semibold text-green-600">
+              Assessment Completed!
+            </h2>
+
+            <p className="mt-4 text-gray-600 dark:text-gray-400">
+              Thank you for completing the assessment.
+            </p>
+
+            <p className="mt-2 text-gray-600 dark:text-gray-400">
+              Your report is being generated and will be available shortly.
+            </p>
+          </Card>
+          <CompletionReport
+            overall_pct={done.overall_pct ?? 0}
+            level_label={done.level_label ?? ""}
+            message={done.message}
+            has_low_confidence={done.has_low_confidence}
+          />
+        </>
       )}
     </main>
   );
