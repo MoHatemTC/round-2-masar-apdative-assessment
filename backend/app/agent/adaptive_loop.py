@@ -79,6 +79,20 @@ def _public_payload(payload: dict | None) -> dict:
         clean["test_cases"] = public_cases
     return clean
 
+def _extract_answer_text(tool_result: dict | None) -> str | None:
+    """Pull a human-readable answer string out of tool_result, instead of
+    dumping the raw dict repr (which previously put literal '{'skipped': True}'
+    or similar into answer_text for MCQ/coding submissions)."""
+    if not isinstance(tool_result, dict):
+        return str(tool_result) if tool_result is not None else None
+    if tool_result.get("skipped"):
+        return None
+    return (
+        tool_result.get("answer_text")
+        or tool_result.get("selected_id")
+        or tool_result.get("code")
+        or str(tool_result)
+    )
 
 # ── The turn entrypoint ──────────────────────────────────────────────────────
 async def run_turn(db, session: dict, state: dict, tool_result: dict | None) -> dict:
@@ -323,16 +337,17 @@ async def grade(db, session: dict, state: dict, tool_result: dict) -> None:
         result = await grade_answer(tool_type, q, tool_result, session["id"])
 
         answer_row = {
-            "session_id": session["id"],
-            "question_number": state.get("question_number"),
-            "question_id": q.get("id"),
-            "question_body": q.get("body"),
-            "competency_id": q.get("competency_id"),
-            "tool_type": q.get("tool_type"),
-            "score": result.get("score"),
-            "rationale": result.get("rationale"),
-            "answer_text": str(tool_result) if isinstance(tool_result, dict) else str(tool_result)
-        }
+    "session_id": session["id"],
+    "question_number": state.get("question_number"),
+    "question_id": q.get("id"),
+    "question_body": q.get("body"),
+    "competency_id": q.get("competency_id"),
+    "tool_type": q.get("tool_type"),
+    "score": result.get("score"),
+    "rationale": result.get("rationale"),
+    "answer_text": _extract_answer_text(tool_result),
+    "skipped": bool(isinstance(tool_result, dict) and tool_result.get("skipped")),
+}
         await db.table("answers").upsert(answer_row, on_conflict="session_id,question_number").execute()
 
     state["_grading"] = result
