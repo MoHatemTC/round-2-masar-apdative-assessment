@@ -20,6 +20,41 @@ import RatingScale from "@/components/ui/RatingScale";
 
 type Step = "loading" | "invalid-link" | "welcome" | "intake" | "loop" | "done";
 
+const SESSION_STORAGE_PREFIX = "assess-session:";
+
+// Persists {sessionId, question} to localStorage, keyed by the URL token, so a
+// hard reload can resume straight into the current question instead of
+// calling startSession() again (which always inserts a brand-new session row)
+// or calling /chat/turn again (which isn't safe to resume with — pick_question
+// has no idempotency check and would silently serve a different question).
+function loadSavedSession(token: string): { sessionId: string; question: Question | null } | null {
+  try {
+    const raw = localStorage.getItem(SESSION_STORAGE_PREFIX + token);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.sessionId) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function saveSession(token: string, sessionId: string, question: Question | null) {
+  try {
+    localStorage.setItem(SESSION_STORAGE_PREFIX + token, JSON.stringify({ sessionId, question }));
+  } catch {
+    // best-effort — worst case a refresh just restarts the session, same as today
+  }
+}
+
+function clearSavedSession(token: string) {
+  try {
+    localStorage.removeItem(SESSION_STORAGE_PREFIX + token);
+  } catch {
+    // ignore
+  }
+}
+
 export default function AssessFlow() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
@@ -41,19 +76,32 @@ export default function AssessFlow() {
   const [loopError, setLoopError] = useState<string | null>(null);
 
   // Step 1: resolve the share-link token into which assessment + competencies to show.
+  // Step 1: resolve the share-link token into which assessment + competencies to show.
   useEffect(() => {
     if (!token) {
       setStep("invalid-link");
       return;
     }
+
+    const resumed = loadSavedSession(token);
+    if (resumed) {
+      setSessionId(resumed.sessionId);
+      if (resumed.question) {
+        setQuestion(resumed.question);
+        setStep("loop");
+      } else {
+        setStep("intake");
+      }
+    }
+
     getAssessmentByToken(token)
       .then((info) => {
         setAssessment(info);
-        setStep("welcome");
+        if (!resumed) setStep("welcome");
       })
       .catch((err) => {
         setLoadError(err instanceof Error ? err.message : "Could not load this assessment link.");
-        setStep("invalid-link");
+        if (!resumed) setStep("invalid-link");
       });
   }, [token]);
 
@@ -64,6 +112,7 @@ export default function AssessFlow() {
     try {
       const { session_id } = await startSession(assessment.assessment_id, token);
       setSessionId(session_id);
+      if (token) saveSession(token, session_id, null);
       setStep("intake");
     } catch (err) {
       setIntakeError(err instanceof Error ? err.message : "Could not start the assessment.");
@@ -107,6 +156,20 @@ export default function AssessFlow() {
     }
   }
 
+const [assessmentSecondsLeft, setAssessmentSecondsLeft] = useState<number | null>(null);
+
+useEffect(() => {
+  if (assessment && assessmentSecondsLeft === null) {
+    setAssessmentSecondsLeft(assessment.time_limit_min * 60);
+  }
+}, [assessment]);
+
+useEffect(() => {
+  if (assessmentSecondsLeft === null || assessmentSecondsLeft <= 0) return;
+  const timer = setTimeout(() => setAssessmentSecondsLeft((s) => (s ?? 0) - 1), 1000);
+  return () => clearTimeout(timer);
+}, [assessmentSecondsLeft]);
+
   async function next(toolResult?: ToolResult) {
     setIsSubmitting(true);
     setLoopError(null);
@@ -120,8 +183,10 @@ export default function AssessFlow() {
         setDone(r.emit);
         setQuestion(null);
         setStep("done");
+        if (token) clearSavedSession(token);
       } else {
         setQuestion(r.emit as Question);
+        if (token) saveSession(token, sessionId, r.emit as Question);
       }
     } catch (err) {
       // Without this, a failed turn (network issue, or a not-yet-implemented backend route)
@@ -258,9 +323,37 @@ export default function AssessFlow() {
 
   return (
     <main className="max-w-2xl mx-auto p-8">
-      <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">
+      {/* <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">
         Take the assessment
-      </h1>
+      </h1> */}
+      {assessmentSecondsLeft !== null && (
+  <div className="flex justify-end mb-6">
+    <div
+      className={`rounded-lg border px-5 py-3 shadow-sm font-mono text-lg font-bold transition-colors
+        ${
+          assessmentSecondsLeft <= 60
+            ? "border-red-500 bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400"
+            : assessmentSecondsLeft <= 300
+            ? "border-yellow-500 bg-yellow-50 text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-400"
+            : "border-transparent bg-primary text-primary-foreground shadow-sm"
+        }`}
+    >
+      <div className="text-xs font-sans uppercase tracking-wider opacity-70 mb-1">
+        Time Remaining
+      </div>
+
+      <div>
+        {Math.floor(assessmentSecondsLeft / 60)
+          .toString()
+          .padStart(2, "0")}
+        :
+        {(assessmentSecondsLeft % 60)
+          .toString()
+          .padStart(2, "0")}
+      </div>
+    </div>
+  </div>
+)}
 
       {loopError && (
         <Card className="mb-4">

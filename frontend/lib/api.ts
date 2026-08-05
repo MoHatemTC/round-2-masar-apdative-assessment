@@ -34,6 +34,7 @@ export interface AssessmentInfo {
   assessment_id: string;
   title: string;
   competencies: CompetencyRef[];
+  time_limit_min: number;
 }
 
 export interface CvUploadResult {
