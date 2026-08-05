@@ -260,11 +260,11 @@ async def get_assessment_by_token(share_token: str):
         ]
 
     return {
-        "assessment_id": assessment["id"],
-        "title": assessment["title"],
-        "competencies": competencies,
-    }
-
+    "assessment_id": assessment["id"],
+    "title": assessment["title"],
+    "competencies": competencies,
+    "time_limit_min": assessment.get("time_limit_min"),
+}
 
 @router.post("/session/{session_id}/cv")
 async def upload_cv(session_id: str, request: Request, file: UploadFile = File(...)):

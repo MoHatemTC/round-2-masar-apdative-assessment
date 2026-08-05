@@ -64,11 +64,17 @@ async def submit_voice_answer(
         return {"status": "already_submitted", "answer": existing_row}
 
     if skipped:
+        question_resp = await db.table("question_bank").select("body,competency_id").eq(
+            "id", question_id
+        ).maybe_single().execute()
+        question = _row(question_resp) or {}
         try:
             claimed = await db.table("answers").insert({
                 "session_id": session_id,
                 "question_number": question_number,
                 "question_id": question_id,
+                "question_body": question.get("body"),
+                "competency_id": question.get("competency_id"),
                 "tool_type": "voice",
                 "skipped": True,
                 "answer_text": None,
@@ -79,6 +85,7 @@ async def submit_voice_answer(
                 "flagged": False,
             }).execute()
             return {"status": "submitted", "answer": claimed.data[0]}
+        
         except Exception as e:
             logger.warning(f"skip claim_row insert failed: {type(e).__name__}: {e}")
             existing = await db.table("answers").select("*").eq(
