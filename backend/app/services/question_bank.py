@@ -327,7 +327,7 @@ Format:
     # Bank questions have a stable id from the DB; a fallback question is
     # generated fresh each time and has none — synthesize one so grade()'s
     # answer_row.question_id isn't silently null forever.
-    question.setdefault("id", f"fallback-{uuid.uuid4()}")
+    question.setdefault("id", str(uuid.uuid4()))
     question.setdefault("competency_id", competency_id)
 
     return question

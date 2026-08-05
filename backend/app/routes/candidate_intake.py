@@ -229,24 +229,14 @@ async def get_assessment_by_token(share_token: str):
     """
     db = await get_db()
 
-    # 1. Find the invitation using the token
-    invitation_resp = await db.table("invitations").select("assessment_id").eq("token", share_token).execute()
+    # Look up the assessment by its share_token
+    found = await db.table("assessments").select("*").eq("share_token", share_token).maybe_single().execute()
 
-    if not invitation_resp.data:
+    if not found or not found.data:
         raise HTTPException(status_code=404, detail="This assessment link is invalid or has expired.")
 
-    assessment_id = invitation_resp.data[0]["assessment_id"]
+    assessment = found.data
 
-    # 2. Fetch the corresponding assessment data
-    found = await db.table("assessments").select("*").eq("id", assessment_id).execute()
-
-    if not found.data:
-        raise HTTPException(status_code=404, detail="The linked assessment no longer exists.")
-
-    assessment = found.data[0]
-
-    # Optional: If you haven't added an 'is_published' column to your assessments table yet,
-    # you may need to comment these two lines out to prevent a 500 error!
     if assessment.get("is_published") is False:
         raise HTTPException(status_code=404, detail="This assessment is not currently open.")
 

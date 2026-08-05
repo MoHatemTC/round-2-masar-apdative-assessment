@@ -17,6 +17,7 @@ import CompletionReport from "./CompletionReport";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import RatingScale from "@/components/ui/RatingScale";
+import FrameCaptureRecorder from "@/components/proctoring/FrameCaptureRecorder";
 
 type Step = "loading" | "invalid-link" | "welcome" | "intake" | "loop" | "done";
 
@@ -39,6 +40,7 @@ export default function AssessFlow() {
   const [done, setDone] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loopError, setLoopError] = useState<string | null>(null);
+  const [flushTick, setFlushTick] = useState(0);
 
   // Step 1: resolve the share-link token into which assessment + competencies to show.
   useEffect(() => {
@@ -108,6 +110,7 @@ export default function AssessFlow() {
   }
 
   async function next(toolResult?: ToolResult) {
+    setFlushTick((t) => t + 1); // flush proctoring frames on each submit
     setIsSubmitting(true);
     setLoopError(null);
     try {
@@ -258,6 +261,14 @@ export default function AssessFlow() {
 
   return (
     <main className="max-w-2xl mx-auto p-8">
+      {/* Proctoring: capture frames every ~20s during the Q&A phase */}
+      <FrameCaptureRecorder
+        sessionId={sessionId}
+        questionNumber={(question as any)?.question_number ?? null}
+        isActive={step === "loop" && !done}
+        flushSignal={flushTick}
+      />
+
       <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">
         Take the assessment
       </h1>

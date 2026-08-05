@@ -103,24 +103,53 @@ async def _count_session_calls(db: AsyncClient, session_id: str) -> int:
     return res.count or 0
 
 
+_DEFAULT_VERDICT: dict[str, Any] = {
+    "person_present": False,
+    "same_person_as_reference": None,
+    "multiple_people": False,
+    "phone_visible": False,
+    "looking_away": False,
+    "confidence": 0.0,
+    "note": "parse_failed",
+}
+
+
+def _safe_float(val: Any, fallback: float = 0.0) -> float:
+    """Convert *val* to float, returning *fallback* on any failure."""
+    try:
+        return float(val) if val is not None else fallback
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _coerce_verdict(v: Any) -> dict[str, Any]:
+    """Coerce a single verdict element into the expected shape.
+
+    Defends against the output-shape half of prompt injection: a response
+    that parses as valid JSON but has unexpected keys or types.
+    """
+    if not isinstance(v, dict):
+        return {**_DEFAULT_VERDICT, "note": "bad_element"}
+    return {
+        "person_present": bool(v.get("person_present", False)),
+        "same_person_as_reference": v.get("same_person_as_reference"),
+        "multiple_people": bool(v.get("multiple_people", False)),
+        "phone_visible": bool(v.get("phone_visible", False)),
+        "looking_away": bool(v.get("looking_away", False)),
+        "confidence": _safe_float(v.get("confidence", 0.0)),
+        "note": str(v.get("note", "")),
+    }
+
+
 def _parse_verdicts(text: str, n_expected: int) -> list[dict[str, Any]]:
     """
     Parse the model's JSON output. Tolerates ```json fences and leading/trailing prose.
     If parsing fails or the array length is wrong, returns a list of low-confidence
     'unknown' verdicts so we still record something instead of losing the row.
+    Each element is coerced to the expected shape (defends against malformed
+    but parseable JSON).
     """
-    default = [
-        {
-            "person_present": False,
-            "same_person_as_reference": None,
-            "multiple_people": False,
-            "phone_visible": False,
-            "looking_away": False,
-            "confidence": 0.0,
-            "note": "parse_failed",
-        }
-        for _ in range(n_expected)
-    ]
+    default = [{**_DEFAULT_VERDICT} for _ in range(n_expected)]
     if not text:
         return default
     cleaned = text.strip()
@@ -140,7 +169,7 @@ def _parse_verdicts(text: str, n_expected: int) -> list[dict[str, Any]]:
         return default
     if not isinstance(parsed, list) or len(parsed) != n_expected:
         return default
-    return parsed
+    return [_coerce_verdict(v) for v in parsed]
 
 
 async def _mark_failed(db: AsyncClient, capture_id: str, reason: str) -> None:

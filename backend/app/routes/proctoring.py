@@ -88,12 +88,20 @@ def _validate_jpeg(upload: UploadFile, data: bytes, max_bytes: int) -> None:
         raise HTTPException(status_code=422, detail="not_a_jpeg")
 
 
-async def _upload_to_storage(db: AsyncClient, path: str, data: bytes) -> str:
-    """Upload the JPEG bytes to the private 'proctoring' bucket. Returns the object path."""
+async def _upload_to_storage(
+    db: AsyncClient, path: str, data: bytes, *, upsert: bool = False,
+) -> str:
+    """Upload JPEG bytes to the private 'proctoring' bucket.
+
+    Args:
+        upsert: If True, overwrite an existing object at the same path.
+                Use True for frames (uniquely named, retries are harmless).
+                Use False for the reference photo (must not be silently replaced).
+    """
     await db.storage.from_(STORAGE_BUCKET).upload(
         path,
         data,
-        file_options={"content-type": "image/jpeg", "upsert": "true"},
+        file_options={"content-type": "image/jpeg", "upsert": str(upsert).lower()},
     )
     return path
 
@@ -131,8 +139,18 @@ async def upload_reference(
     file: UploadFile = File(...),
     db: AsyncClient = Depends(get_db),
 ) -> dict:
-    """Store the single reference photo. This is the ONE upload that gates
-    assessment start; the frontend must not enable "Begin" until it succeeds."""
+    """Store the single reference photo.  This is the ONE upload that gates
+    assessment start; the frontend must not enable "Begin" until it succeeds.
+
+    Security notes (addressing PR review feedback):
+      * The DB row is claimed BEFORE the storage upload so the unique index
+        is the guard — if it 409s, no image is written.
+      * A retake is allowed only while no frames have been captured yet
+        (window-bounding).  Once the Q&A phase starts the reference is locked,
+        preventing silent replacement of the face that frames are compared
+        against — even without a full auth layer.
+      * Storage upsert is False for references (must not silently overwrite).
+    """
     if kind != "reference":
         raise HTTPException(status_code=422, detail="bad_kind")
 
@@ -144,20 +162,54 @@ async def upload_reference(
     _validate_jpeg(file, data, MAX_REFERENCE_BYTES)
 
     path = f"{session_id}/reference.jpg"
-    await _upload_to_storage(db, path, data)
 
-    # Upsert: if a reference row already exists (retry / retake), replace it
-    # instead of failing with a unique-constraint violation.
-    await db.table("proctoring_captures").upsert(
+    # --- Window-bounding: allow retake only before any frames exist ----------
+    existing = (
+        await db.table("proctoring_captures")
+        .select("id")
+        .eq("session_id", session_id)
+        .eq("kind", "reference")
+        .maybe_single()
+        .execute()
+    )
+
+    if existing and existing.data:
+        # A reference already exists.  Only allow replacement while the
+        # assessment hasn't started — i.e. before any frames have been captured.
+        frames = (
+            await db.table("proctoring_captures")
+            .select("id", count="exact")
+            .eq("session_id", session_id)
+            .eq("kind", "frame")
+            .execute()
+        )
+        if frames.count:
+            raise HTTPException(
+                status_code=409,
+                detail="Reference photo is locked once the assessment has started.",
+            )
+        # Pre-assessment retake: delete the old row so the insert below succeeds.
+        await (
+            db.table("proctoring_captures")
+            .delete()
+            .eq("id", existing.data["id"])
+            .execute()
+        )
+
+    # --- Claim the DB slot FIRST, then write storage -------------------------
+    await db.table("proctoring_captures").insert(
         {
             "session_id": session_id,
             "question_number": None,
             "kind": "reference",
             "storage_path": path,
             "analysis_status": "pending",
-        },
-        on_conflict="session_id,kind",
+        }
     ).execute()
+
+    # Only reached if we own the slot — storage upsert is False so a
+    # concurrent write would fail rather than silently overwrite.
+    await _upload_to_storage(db, path, data, upsert=False)
 
     return {"ok": True, "storage_path": path}
 
@@ -223,7 +275,7 @@ async def upload_frame_batch(
             _validate_jpeg(f, data, MAX_FILE_BYTES)
             meta = FrameMeta.model_validate_json(m)
             path = f"{session_id}/frames/{meta.timestamp}.jpg"
-            await _upload_to_storage(db, path, data)
+            await _upload_to_storage(db, path, data, upsert=True)
             accepted.append((path, meta))
         except HTTPException as e:
             skipped.append(f"file_{i}:{e.detail}")
@@ -254,3 +306,41 @@ async def upload_frame_batch(
         status_code=status_code,
         content={"ok": True, "accepted": len(accepted), "skipped": skipped},
     )
+
+
+# ============================================================================
+# 4. Storage cleanup  (call when a session is deleted)
+# ============================================================================
+
+async def purge_proctoring_storage(db: AsyncClient, session_id: str) -> int:
+    """Delete all proctoring images for a session from the storage bucket.
+
+    DB rows are handled by ``ON DELETE CASCADE`` on the FK to sessions, but
+    Storage objects have no such mechanism — this function closes that gap.
+
+    Call this **before** deleting the session row so the cascade hasn't yet
+    removed the capture rows we need to enumerate paths.
+
+    Returns the number of objects removed.
+    """
+    import logging as _log
+
+    rows = (
+        await db.table("proctoring_captures")
+        .select("storage_path")
+        .eq("session_id", session_id)
+        .execute()
+    )
+    paths = [r["storage_path"] for r in (rows.data or []) if r.get("storage_path")]
+    if not paths:
+        return 0
+
+    try:
+        await db.storage.from_(STORAGE_BUCKET).remove(paths)
+    except Exception as exc:  # noqa: BLE001
+        _log.getLogger(__name__).warning(
+            "Failed to purge %d storage objects for session %s: %s",
+            len(paths), session_id, exc,
+        )
+        return 0
+    return len(paths)
