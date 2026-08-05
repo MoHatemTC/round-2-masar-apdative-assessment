@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   turn,
   type ToolResult,
@@ -22,14 +22,16 @@ import FrameCaptureRecorder from "@/components/proctoring/FrameCaptureRecorder";
 type Step = "loading" | "invalid-link" | "welcome" | "intake" | "loop" | "done";
 
 export default function AssessFlow() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
+  const resumeSessionId = searchParams.get("session_id");
 
   const [step, setStep] = useState<Step>("loading");
   const [assessment, setAssessment] = useState<AssessmentInfo | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [sessionId, setSessionId] = useState("");
+  const [sessionId, setSessionId] = useState(resumeSessionId ?? "");
   const [ratings, setRatings] = useState<Record<string, number>>({});
   const [cvFeedback, setCvFeedback] = useState<string | null>(null);
   const [cvUploading, setCvUploading] = useState(false);
@@ -43,6 +45,7 @@ export default function AssessFlow() {
   const [flushTick, setFlushTick] = useState(0);
 
   // Step 1: resolve the share-link token into which assessment + competencies to show.
+  // If returning from consent with a session_id, skip straight to intake.
   useEffect(() => {
     if (!token) {
       setStep("invalid-link");
@@ -51,13 +54,13 @@ export default function AssessFlow() {
     getAssessmentByToken(token)
       .then((info) => {
         setAssessment(info);
-        setStep("welcome");
+        setStep(resumeSessionId ? "intake" : "welcome");
       })
       .catch((err) => {
         setLoadError(err instanceof Error ? err.message : "Could not load this assessment link.");
         setStep("invalid-link");
       });
-  }, [token]);
+  }, [token, resumeSessionId]);
 
   async function beginIntake() {
     if (!assessment) return;
@@ -66,7 +69,11 @@ export default function AssessFlow() {
     try {
       const { session_id } = await startSession(assessment.assessment_id, token);
       setSessionId(session_id);
-      setStep("intake");
+      // Redirect to consent + reference photo flow before starting the assessment.
+      // The consent page redirects back here with ?token= after completion.
+      router.push(
+        `/assess/consent?session_id=${encodeURIComponent(session_id)}&token=${encodeURIComponent(token ?? "")}`,
+      );
     } catch (err) {
       setIntakeError(err instanceof Error ? err.message : "Could not start the assessment.");
     } finally {

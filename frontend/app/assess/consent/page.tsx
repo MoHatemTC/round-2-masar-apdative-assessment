@@ -52,11 +52,11 @@ function ProctoringConsentInner() {
     } catch {
       // best-effort; do not block the candidate
     }
-    router.push(`/assess?token=${encodeURIComponent(token)}`);
+    router.push(`/assess?token=${encodeURIComponent(token)}&session_id=${encodeURIComponent(sessionId)}`);
   }
 
   function handleReferenceConfirmed() {
-    router.push(`/assess?token=${encodeURIComponent(token)}`);
+    router.push(`/assess?token=${encodeURIComponent(token)}&session_id=${encodeURIComponent(sessionId)}`);
   }
 
   return (
