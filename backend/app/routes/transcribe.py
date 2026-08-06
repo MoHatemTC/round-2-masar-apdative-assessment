@@ -64,15 +64,20 @@ async def submit_voice_answer(
         return {"status": "already_submitted", "answer": existing_row}
 
     if skipped:
-        question_resp = await db.table("question_bank").select("body,competency_id").eq(
-            "id", question_id
-        ).maybe_single().execute()
-        question = _row(question_resp) or {}
+        if isinstance(question_id, str) and question_id.startswith("fallback-"):
+            question = {}
+            db_question_id = None
+        else:
+            question_resp = await db.table("question_bank").select("body,competency_id").eq(
+                "id", question_id
+            ).maybe_single().execute()
+            question = _row(question_resp) or {}
+            db_question_id = question_id
         try:
             claimed = await db.table("answers").insert({
                 "session_id": session_id,
                 "question_number": question_number,
-                "question_id": question_id,
+                "question_id": db_question_id,
                 "question_body": question.get("body"),
                 "competency_id": question.get("competency_id"),
                 "tool_type": "voice",
@@ -93,10 +98,13 @@ async def submit_voice_answer(
             ).eq("question_number", question_number).maybe_single().execute()
             return {"status": "already_submitted", "answer": _row(existing)}
 
-    question_resp = await db.table("question_bank").select("*").eq(
-        "id", question_id
-    ).maybe_single().execute()
-    question = _row(question_resp) or {}
+    if isinstance(question_id, str) and question_id.startswith("fallback-"):
+        question = {}
+    else:
+        question_resp = await db.table("question_bank").select("*").eq(
+            "id", question_id
+        ).maybe_single().execute()
+        question = _row(question_resp) or {}
     
     base_row = {
         "session_id": session_id,

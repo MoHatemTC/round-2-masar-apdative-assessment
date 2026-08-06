@@ -128,9 +128,9 @@ async def turn(
     
     # Idempotency / Stale submission guard
     tool_result = body.get("tool_result")
+    state_qnum = state.get("question_number")
     if tool_result is not None:
         req_qnum = body.get("question_number")
-        state_qnum = state.get("question_number")
         # question_number is mandatory for every answer submission
         if req_qnum is None:
             raise HTTPException(
@@ -145,16 +145,16 @@ async def turn(
             )
         # Per-question deadline — re-derived server-side, never trusted from the client.
     if state.get("answer_timer_question_number") == state_qnum and state.get("answer_started_at"):
-     current_question = state.get("current_question") or {}
-     q_time_limit = (current_question.get("payload") or {}).get("time_limit_seconds", 120)
-     started_at = datetime.fromisoformat(state["answer_started_at"])
-     q_deadline = started_at + timedelta(seconds=q_time_limit)
+        current_question = state.get("current_question") or {}
+        q_time_limit = (current_question.get("payload") or {}).get("time_limit_seconds", 120)
+        started_at = datetime.fromisoformat(state["answer_started_at"])
+        q_deadline = started_at + timedelta(seconds=q_time_limit)
 
-    if datetime.now(timezone.utc) > q_deadline:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Time limit for this question has expired.",
-        )
+        if datetime.now(timezone.utc) > q_deadline:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Time limit for this question has expired.",
+            )
     try:
         # 2. Execute the adaptive loop logic, passing the current state and any user tool_result
         new_state = await adaptive_loop.run_turn(
