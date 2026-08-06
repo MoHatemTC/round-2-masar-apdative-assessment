@@ -16,9 +16,6 @@ Fill in every TODO. Keep the golden rules:
 from __future__ import annotations
 import os
 import asyncio
-import logging
-
-logger = logging.getLogger(__name__)
 
 from app.estimator.engine import estimate_level
 from app.estimator.contract import EstimatorInput
@@ -342,7 +339,10 @@ async def grade(db, session: dict, state: dict, tool_result: dict) -> None:
 
     cid = q.get("competency_id")
     pc = state["per_competency"][cid]
-    pc["used_ids"].append(str(q.get("id")))
+    # Only bank questions have ids; used_ids is the never-repeat list the selector excludes,
+    # and a generated question is never in the bank to be re-selected anyway.
+    if q.get("id"):
+        pc["used_ids"].append(str(q.get("id")))
     pc["questions_asked"] += 1
 
     t_types = pc.get("asked_types", {})
@@ -475,32 +475,30 @@ async def finalize(db, session: dict, state: dict) -> dict:
     # =========================================================
     # EMAIL DISPATCH (Non-Blocking)
     # =========================================================
-    try:
-        candidate_email = session.get("candidate_email")
-        admin_email = os.environ.get("ADMIN_EMAIL", "sherifelgendy2004@gmail.com")
+    candidate_email = session.get("candidate_email")
+    admin_email = os.environ.get("ADMIN_EMAIL", "admin@yourdomain.com")
 
-        if candidate_email:
-            asyncio.create_task(
-                send_report_background(
-                    db,
-                    to=candidate_email,
-                    session_id=str(session["id"]),
-                    overall_pct=report_row.get("overall_pct", 0),
-                    band=report_row.get("level_label", "Unknown"),
-                    has_low_confidence=report_row.get("has_low_confidence", False),
-                )
+    # Dispatch candidate report email
+    if candidate_email:
+        asyncio.create_task(
+            send_report_background(
+                db,
+                to=candidate_email,
+                overall_pct=report_row.get("overall_pct", 0),
+                band=report_row.get("level_label", "Unknown"),
+                has_low_confidence=report_row.get("has_low_confidence", False)
             )
+        )
 
-        if admin_email:
-            asyncio.create_task(
-                send_admin_notification_background(
-                    db,
-                    admin_email=admin_email,
-                    session_id=str(session["id"]),
-                )
+    # Dispatch admin notification email
+    if admin_email:
+        asyncio.create_task(
+            send_admin_notification_background(
+                db,
+                admin_email=admin_email,
+                session_id=str(session["id"])
             )
-    except Exception as exc:
-        logger.error(f"Email dispatch failed (non-fatal): {exc}")
+        )
 
     state["_complete"] = True
     state["_emit"] = {
@@ -509,6 +507,5 @@ async def finalize(db, session: dict, state: dict) -> dict:
         "overall_pct": report_row.get("overall_pct"),
         "level_label": report_row.get("level_label"),
         "has_low_confidence": report_row.get("has_low_confidence", False),
-        "candidate_name": session.get("candidate_name"),
     }
     return state

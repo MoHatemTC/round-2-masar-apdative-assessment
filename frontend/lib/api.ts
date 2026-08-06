@@ -17,7 +17,6 @@ export interface Question {
 export interface TurnResponse {
   complete: boolean;
   emit: Question | Record<string, unknown>;
-  seconds_left?: number | null;
 }
 
 export type ToolResult =
@@ -35,7 +34,6 @@ export interface AssessmentInfo {
   assessment_id: string;
   title: string;
   competencies: CompetencyRef[];
-  time_limit_min: number;
 }
 
 export interface CvUploadResult {
@@ -83,12 +81,19 @@ export interface SandboxRunResult {
 
 // ---- Report types ----
 
+// Mirrors a `session_competency_results` row (005_reports.sql) as returned verbatim by
+// GET /admin/sessions/{id}/report. The verified level and confidence are `final_level` /
+// `final_confidence` — naming them level/confidence here made both read `undefined`, which
+// rendered an empty Level column and a NaN confidence bar in the admin report.
 export interface CompetencyResult {
   competency_id: string;
+  self_rating: number | null;
+  initial_estimate: number | null;
   final_level: number;
   final_confidence: number;
   questions_asked: number;
   converged_reason: string;
+  low_confidence: boolean;
 }
 
 export interface AnswerDetail {
@@ -140,29 +145,13 @@ export async function getAssessmentByToken(token: string): Promise<AssessmentInf
   return apiRequest(`/assessments/by-token/${encodeURIComponent(token)}`);
 }
 
-export async function startSession(
-  assessmentId: string,
-  token?: string,
-  candidateName?: string,
-  candidateEmail?: string
-): Promise<{ session_id: string }> {
+export async function startSession(assessmentId: string, token?: string): Promise<{ session_id: string }> {
   return apiRequest("/session/start", {
     method: "POST",
     body: JSON.stringify({
       assessment_id: assessmentId,
-      token: token,
-      candidate_name: candidateName,
-      candidate_email: candidateEmail,
+      token: token
     }),
-  });
-}
-export async function startAnswerTimer(params: {
-  session_id: string;
-  question_number: number;
-}): Promise<{ deadline_at_ms: number; time_limit_seconds: number }> {
-  return apiRequest(`/session/${params.session_id}/answer-timer/start`, {
-    method: "POST",
-    body: JSON.stringify({ question_number: params.question_number }),
   });
 }
 
@@ -209,20 +198,10 @@ export async function turn(params: {
 }
 
 // ---- Report ----
+// NOTE: only an admin-facing report route exists (/admin/sessions/{id}/report) as of this
+// writing. No candidate-facing /report/{id} route exists yet.
 export async function getReport(sessionId: string): Promise<SessionReport> {
   return apiRequest<SessionReport>(`/admin/sessions/${sessionId}/report`);
-}
-
-export interface CandidateReport {
-  session_id: string;
-  overall_pct: number;
-  level_label: string;
-  has_low_confidence: boolean;
-  competency_results: { competency_id: string; final_level: number; final_confidence: number; questions_asked: number }[];
-}
-
-export async function getCandidateReport(sessionId: string): Promise<CandidateReport> {
-  return apiRequest<CandidateReport>(`/report/${sessionId}`);
 }
 
 export async function submitAnswer(params: {
@@ -236,17 +215,13 @@ export async function submitAnswer(params: {
   });
 }
 
+// Accepts the PRD flat format ({items, set_name}); the backend normalizes it and
+// responds with the AdminImportSummary shape shared with /admin/import.
 export async function importBank(
   items: unknown[],
   setName?: string
-): Promise<{
-  questions: number;
-  set?: {
-    name: string;
-    item_count: number;
-  };
-}> {
-  return apiRequest("/question-bank/import", {
+): Promise<AdminImportSummary> {
+  return apiRequest("/admin/question-bank/import", {
     method: "POST",
     body: JSON.stringify({
       items,
@@ -257,24 +232,6 @@ export async function importBank(
 
 export async function getAssessments(): Promise<Assessment[]> {
   return apiRequest<Assessment[]>("/admin/assessments");
-}
-
-export interface Session {
-  id: string;
-  session_id?: string | null;
-  assessment_id: string | null;
-  candidate_name: string | null;
-  candidate_email: string | null;
-  status: string;
-  created_at: string;
-  completed_at: string | null;
-  overall_pct?: number;
-  level_label?: string;
-  has_low_confidence?: boolean;
-}
-
-export async function getSessions(): Promise<Session[]> {
-  return apiRequest<Session[]>("/admin/sessions");
 }
 
 export async function getInvitations(assessmentId: string): Promise<Invitation[]> {

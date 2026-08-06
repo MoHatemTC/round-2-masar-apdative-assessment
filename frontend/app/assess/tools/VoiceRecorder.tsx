@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef } from "react";
 import Button from "@/components/ui/Button";
 import { Mic, Square, RotateCcw } from "lucide-react";
-import { startAnswerTimer } from "@/lib/api";
 
 export interface VoiceQuestion {
   id: string;
@@ -43,25 +42,22 @@ export default function VoiceRecorder({ question, onSubmit, isSubmitting = false
   const finalDurationRef = useRef<number>(0);
   const hasSubmittedRef = useRef(false);
 
-  const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
-  const [deadlineAtMs, setDeadlineAtMs] = useState<number | null>(null);
+  const timeLimit = question.payload.time_limit_seconds ?? 120;
+  const [secondsLeft, setSecondsLeft] = useState(timeLimit);
   const hasAutoSubmitted = useRef(false);
 
-  // Deadline is only ever set by the server (on Record click, or restored on resume) —
-  // never derived from question.payload directly, so it can't be tampered with client-side.
   useEffect(() => {
-    if (deadlineAtMs === null || checkingExisting || alreadyAnswered) return;
-    const tick = () => setSecondsLeft(Math.max(0, Math.round((deadlineAtMs - Date.now()) / 1000)));
-    tick();
-    const interval = setInterval(tick, 1000);
-    return () => clearInterval(interval);
-  }, [deadlineAtMs, checkingExisting, alreadyAnswered]);
-
-  useEffect(() => {
-    if (secondsLeft === null || secondsLeft > 0 || hasAutoSubmitted.current) return;
-    hasAutoSubmitted.current = true;
-    handleTimeUp();
-  }, [secondsLeft]);
+    if (checkingExisting || alreadyAnswered) return;
+    if (secondsLeft <= 0) {
+        if (!hasAutoSubmitted.current) {
+            hasAutoSubmitted.current = true;
+            handleTimeUp();
+           }
+    return;
+  }
+  const timer = setTimeout(() => setSecondsLeft((s) => s - 1), 1000);
+  return () => clearTimeout(timer);
+}, [secondsLeft, checkingExisting, alreadyAnswered]);
 
   useEffect(() => {
   async function checkExisting() {
@@ -88,9 +84,6 @@ export default function VoiceRecorder({ question, onSubmit, isSubmitting = false
   async function startRecording() {
     setRecordError(null);
     try {
-      const timer = await startAnswerTimer({ session_id: sessionId, question_number: questionNumber });
-      setDeadlineAtMs(timer.deadline_at_ms);
-
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
       });
@@ -185,7 +178,9 @@ async function submitWhatWeHave(isAutoSubmit = false) {
 
   const formData = new FormData();
   formData.append("duration_ms", String(finalDurationRef.current));
-  formData.append("question_id", question.id);
+  // Generated (bank-exhaustion) questions have no bank row and therefore no id; the
+  // server treats a missing id as "not a bank question" and grades from session state.
+  if (question.id) formData.append("question_id", question.id);
 
   if (finalBlobRef.current) {
     formData.append("audio", finalBlobRef.current, "answer.webm");
@@ -218,7 +213,9 @@ async function submitWhatWeHave(isAutoSubmit = false) {
 
   const formData = new FormData();
   formData.append("duration_ms", "0");
-  formData.append("question_id", question.id);
+  // Generated (bank-exhaustion) questions have no bank row and therefore no id; the
+  // server treats a missing id as "not a bank question" and grades from session state.
+  if (question.id) formData.append("question_id", question.id);
   formData.append("skipped", "true");
 
   const result = await postVoiceAnswer(formData);

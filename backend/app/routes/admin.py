@@ -23,6 +23,13 @@ from app.ingestion.schemas import (
     QuestionBankImport,
 )
 
+from app.ingestion.normalize import (
+    is_flat_bank,
+    normalize_flat_bank,
+)
+
+from pydantic import ValidationError
+
 from app.ingestion.validators import (
     validate_import,
 )
@@ -99,15 +106,24 @@ async def question_bank_types():
 
 @router.post("/question-bank/import")
 async def import_bank(
-    payload: QuestionBankImport,
+    raw: list | dict = Body(...),
 ):
 
     """
     Import Question Bank.
 
+    Accepts BOTH upload formats:
+      * the PRD flat format — a bare JSON array of items (data/sample_question_bank.json),
+        or {"items": [...], "set_name": "..."} as the admin UI sends it — which is
+        normalized server-side, and
+      * the structured {competencies, questions, question_set} payload.
+
     Flow:
 
     JSON
+      |
+      v
+    normalize (flat -> structured, when needed)
       |
       v
     Pydantic validation
@@ -121,6 +137,28 @@ async def import_bank(
       v
     Supabase upserts
     """
+
+    if is_flat_bank(raw):
+        raw = normalize_flat_bank(raw)
+
+    try:
+        payload = QuestionBankImport.model_validate(raw)
+    except ValidationError as exc:
+        return {
+            "success": False,
+            "competencies_imported": 0,
+            "questions_imported": 0,
+            "question_set_items_imported": 0,
+            "errors": [
+                {
+                    # loc like ('questions', 3, 'text') -> row 3; -1 when not per-row
+                    "row": e["loc"][1] if len(e["loc"]) > 1 and isinstance(e["loc"][1], int) else -1,
+                    "field": ".".join(str(p) for p in e["loc"]),
+                    "message": e["msg"],
+                }
+                for e in exc.errors()
+            ],
+        }
 
 
     errors = validate_import(
@@ -197,7 +235,15 @@ async def set_competencies(
     db: AsyncClient = Depends(get_db),
 ):
     """
-    Return UUIDs of the sub-competencies covered by a question set.
+    Return the UUIDs of the competencies MEASURED by a question set — that is, the
+    competencies its questions are actually filed under (the sub-competencies).
+
+    These ids drive three things downstream, all of which must agree: the self-ratings
+    collected at intake, the per-competency loop in the adaptive engine, and the rows in
+    session_competency_results. The engine selects questions with
+    `question_bank.competency_id == <one of these ids>`, so returning the PARENT track ids
+    here made every lookup miss (questions hang off the subs), the bank look exhausted on
+    question 1, and every candidate got LLM-generated fallback questions instead of the bank.
     """
 
     items_response = (
@@ -225,7 +271,7 @@ async def set_competencies(
         .execute()
     )
 
-    sub_ids = list(
+    measured_ids = list(
         {
             q["competency_id"]
             for q in questions_response.data
@@ -233,7 +279,8 @@ async def set_competencies(
         }
     )
 
-    return sub_ids
+    return measured_ids
+
 # =========================================================
 # Create Assessment
 # =========================================================
@@ -297,45 +344,6 @@ async def list_assessments(db: AsyncClient = Depends(get_db)):
     return response.data
 
 
-@router.get("/sessions")
-async def list_sessions(db: AsyncClient = Depends(get_db)):
-    sessions_resp = await db.table("sessions").select(
-        "id, assessment_id, candidate_name, candidate_email, status, created_at, completed_at"
-    ).execute()
-    sessions = sessions_resp.data or []
-
-    completed_ids = [s["id"] for s in sessions if s["status"] == "completed"]
-
-    reports_map: dict = {}
-    if completed_ids:
-        reports_resp = await db.table("final_reports").select(
-            "session_id, overall_pct, level_label, has_low_confidence"
-        ).in_("session_id", completed_ids).execute()
-        for r in (reports_resp.data or []):
-            reports_map[r["session_id"]] = r
-
-    results = []
-    for s in sessions:
-        row = {
-            "id": s["id"],
-            "session_id": s["id"],
-            "assessment_id": s.get("assessment_id"),
-            "candidate_name": s.get("candidate_name"),
-            "candidate_email": s.get("candidate_email"),
-            "status": s["status"],
-            "created_at": s.get("created_at"),
-            "completed_at": s.get("completed_at"),
-        }
-        report = reports_map.get(s["id"])
-        if report:
-            row["overall_pct"] = report.get("overall_pct")
-            row["level_label"] = report.get("level_label")
-            row["has_low_confidence"] = report.get("has_low_confidence")
-        results.append(row)
-
-    return results
-
-
 @router.get("/sessions/{session_id}/report")
 async def get_report(session_id: str, db: AsyncClient = Depends(get_db)):
     session_response = await db.table("sessions").select("status").eq("id", session_id).execute()
@@ -397,7 +405,7 @@ async def list_invitations(assessment_id: UUID, db: AsyncClient = Depends(get_db
         email = inv.get("candidate_email")
         session_data = sessions_map.get(email, {})
         session_status = session_data.get("status")
-        session_id = inv.get("session_id") or session_data.get("session_id")
+        session_id = session_data.get("session_id") # Grab the ID!
 
         if session_status == "completed":
             status_label = "taken"
@@ -408,7 +416,7 @@ async def list_invitations(assessment_id: UUID, db: AsyncClient = Depends(get_db
 
         results.append({
             "id": inv.get("id"),
-            "session_id": session_id,
+            "session_id": session_id, # Frontend uses this for the drill-down link
             "candidate_email": email,
             "status": status_label,
             "invited_at": inv.get("created_at")
