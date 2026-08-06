@@ -344,6 +344,52 @@ async def list_assessments(db: AsyncClient = Depends(get_db)):
     return response.data
 
 
+@router.get("/sessions")
+async def list_sessions(
+    assessment_id: str | None = None,
+    db: AsyncClient = Depends(get_db),
+):
+    """Every candidate session, newest first, for the admin sessions dashboard.
+
+    Each row carries the score/band from `final_reports` when the session finished, so the
+    list can show results without the client fetching a report per row. Sessions that are
+    still running simply have those fields null. Optional `assessment_id` narrows the list
+    to one assessment.
+    """
+    query = db.table("sessions").select(
+        "id, assessment_id, candidate_name, candidate_email, status, created_at, completed_at"
+    )
+    if assessment_id:
+        query = query.eq("assessment_id", assessment_id)
+
+    sessions_response = await query.order("created_at", desc=True).execute()
+    sessions = sessions_response.data or []
+    if not sessions:
+        return []
+
+    # One extra round trip for all reports beats one per session row.
+    reports_response = (
+        await db.table("final_reports")
+        .select("session_id, overall_pct, level_label, has_low_confidence")
+        .in_("session_id", [s["id"] for s in sessions])
+        .execute()
+    )
+    reports = {r["session_id"]: r for r in (reports_response.data or [])}
+
+    return [
+        {
+            **session,
+            # The list links to /admin/sessions/{id}; session_id mirrors id so the page can
+            # use either without a special case.
+            "session_id": session["id"],
+            "overall_pct": reports.get(session["id"], {}).get("overall_pct"),
+            "level_label": reports.get(session["id"], {}).get("level_label"),
+            "has_low_confidence": reports.get(session["id"], {}).get("has_low_confidence"),
+        }
+        for session in sessions
+    ]
+
+
 @router.get("/sessions/{session_id}/report")
 async def get_report(session_id: str, db: AsyncClient = Depends(get_db)):
     session_response = await db.table("sessions").select("status").eq("id", session_id).execute()
