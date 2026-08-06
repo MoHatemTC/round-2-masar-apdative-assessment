@@ -18,6 +18,10 @@ dist/
 build/
 npm-debug.log*
 yarn-error.log*
+*.tsbuildinfo
+
+# Scratch / generated patches
+patches/
 
 # OS / editor
 .DS_Store

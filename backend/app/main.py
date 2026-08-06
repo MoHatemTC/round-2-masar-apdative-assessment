@@ -28,7 +28,11 @@ question_sets_router = importlib.import_module("app.api.routers.question_sets")
 # ---- Lifespan: start/stop the proctoring vision worker ---------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    start_worker()
+    if os.getenv("ENABLE_PROCTORING_WORKER", "true").lower() == "true":
+        start_worker()
+        logger.info("Proctoring vision worker enabled.")
+    else:
+        logger.info("Proctoring vision worker disabled (ENABLE_PROCTORING_WORKER != true).")
     try:
         yield
     finally:
@@ -40,9 +44,15 @@ app = FastAPI(
     lifespan=lifespan,   # <-- ADDED
 )
 
+_cors_origins = [
+    o.strip()
+    for o in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+    if o.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -62,7 +72,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     return JSONResponse(
         status_code=500,
         content={"detail": f"{type(exc).__name__}: {exc}"},
-        headers={"Access-Control-Allow-Origin": "http://localhost:3000"},
+        headers={"Access-Control-Allow-Origin": _cors_origins[0] if _cors_origins else "*"},
     )
 
 

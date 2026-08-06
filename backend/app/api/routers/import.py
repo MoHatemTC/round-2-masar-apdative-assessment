@@ -26,6 +26,8 @@ This router performs orchestration only.
 No business logic should live here.
 """
 
+import logging
+
 from fastapi import (
     APIRouter,
     Depends,
@@ -34,6 +36,8 @@ from fastapi import (
 )
 
 from supabase import AsyncClient
+
+logger = logging.getLogger(__name__)
 
 from app.db.session import get_supabase
 
@@ -101,7 +105,7 @@ async def import_bank(
     payload: QuestionBankImport,
     db: AsyncClient = Depends(get_supabase),
 ):
-    print("========== IMPORT ROUTE HIT ==========")
+    logger.info("Import route hit")
 
     errors = validate_import(payload)
 
