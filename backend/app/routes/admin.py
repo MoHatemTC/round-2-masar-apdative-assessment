@@ -197,8 +197,7 @@ async def set_competencies(
     db: AsyncClient = Depends(get_db),
 ):
     """
-    Return UUIDs of the parent competencies
-    covered by a question set.
+    Return UUIDs of the sub-competencies covered by a question set.
     """
 
     items_response = (
@@ -234,26 +233,7 @@ async def set_competencies(
         }
     )
 
-    if not sub_ids:
-        return []
-
-    competencies_response = (
-        await db.table("competencies")
-        .select("parent_id")
-        .in_("id", sub_ids)
-        .execute()
-    )
-
-    track_ids = list(
-        {
-            row["parent_id"]
-            for row in competencies_response.data
-            if row.get("parent_id")
-        }
-    )
-
-    return track_ids
-
+    return sub_ids
 # =========================================================
 # Create Assessment
 # =========================================================

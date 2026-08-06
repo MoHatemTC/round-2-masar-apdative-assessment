@@ -4,7 +4,7 @@ Candidate API: start a session, submit intake, and run one adaptive turn.
 from __future__ import annotations
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from supabase import AsyncClient
-
+from datetime import datetime, timedelta, timezone
 # Dependency injection for the async database client
 from app.db import get_db
 from app.agent import adaptive_loop
@@ -25,6 +25,51 @@ async def submit_intake(session_id: str, body: dict = Body(...)):
     TODO: update sessions.intake_answers / cv_json. Store self-ratings keyed by competency id."""
     raise NotImplementedError
 '''
+@router.post("/session/{session_id}/answer-timer/start")
+async def start_answer_timer(
+    session_id: str,
+    body: dict = Body(...),
+    db: AsyncClient = Depends(get_db),
+):
+    """Server-authoritative start of the per-question answer clock. Idempotent per
+    question_number, so a refresh or repeated click never grants extra time — and the time
+    limit is always read from the question's own payload server-side, never trusted from the
+    client."""
+    question_number = body.get("question_number")
+    if question_number is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="question_number is required")
+
+    response = await db.table("sessions").select("*").eq("id", session_id).maybe_single().execute()
+    if not response or not response.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+
+    session = response.data
+    state = session.get("agent_state") or {}
+
+    if state.get("question_number") != question_number:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This is not the current active question.",
+        )
+
+    current_question = state.get("current_question") or {}
+    time_limit_seconds = (current_question.get("payload") or {}).get("time_limit_seconds", 120)
+
+    if state.get("answer_timer_question_number") == question_number and state.get("answer_started_at"):
+        # Already started for this exact question — return the original deadline unchanged.
+        started_at = datetime.fromisoformat(state["answer_started_at"])
+    else:
+        started_at = datetime.now(timezone.utc)
+        state["answer_started_at"] = started_at.isoformat()
+        state["answer_timer_question_number"] = question_number
+        await db.table("sessions").update({"agent_state": state}).eq("id", session_id).execute()
+
+    deadline = started_at + timedelta(seconds=time_limit_seconds)
+    return {
+        "deadline_at_ms": int(deadline.timestamp() * 1000),
+        "time_limit_seconds": time_limit_seconds,
+    }
+
 
 @router.post("/chat/turn")
 async def turn(
@@ -53,6 +98,24 @@ async def turn(
         )
         
     session = response.data
+    state = session.get("agent_state") or {}
+
+    # Server-enforced time limit — never trust a client-sent countdown.
+    seconds_left = None
+    if session.get("started_at"):
+        assess_resp = await db.table("assessments").select("time_limit_min").eq("id", session["assessment_id"]).maybe_single().execute()
+        time_limit_min = (assess_resp.data or {}).get("time_limit_min")
+        if time_limit_min:
+            started_at = datetime.fromisoformat(session["started_at"])
+            deadline = started_at + timedelta(minutes=time_limit_min)
+            seconds_left = max(0, int((deadline - datetime.now(timezone.utc)).total_seconds()))
+
+            if seconds_left <= 0 and body.get("tool_result") is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Time limit for this assessment has expired.",
+                
+                )
     # Extract the current state dictionary, defaulting to an empty dict if uninitialized
     state = session.get("agent_state") or {}
 
@@ -80,7 +143,18 @@ async def turn(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Stale submission or duplicate request"
             )
-    
+        # Per-question deadline — re-derived server-side, never trusted from the client.
+    if state.get("answer_timer_question_number") == state_qnum and state.get("answer_started_at"):
+     current_question = state.get("current_question") or {}
+     q_time_limit = (current_question.get("payload") or {}).get("time_limit_seconds", 120)
+     started_at = datetime.fromisoformat(state["answer_started_at"])
+     q_deadline = started_at + timedelta(seconds=q_time_limit)
+
+    if datetime.now(timezone.utc) > q_deadline:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Time limit for this question has expired.",
+        )
     try:
         # 2. Execute the adaptive loop logic, passing the current state and any user tool_result
         new_state = await adaptive_loop.run_turn(
@@ -100,10 +174,10 @@ async def turn(
         # 4. Return the next action to the frontend, pulling the transient emit/complete flags 
         # directly from the pre-sanitized state object
         return {
-            "emit": new_state.get("_emit"), 
-            "complete": new_state.get("_complete", False)
+            "emit": new_state.get("_emit"),
+            "complete": new_state.get("_complete", False),
+            "seconds_left": seconds_left,
         }
-        
     except Exception as e:
         # Catch internal processing errors and bubble them up cleanly
         raise HTTPException(
