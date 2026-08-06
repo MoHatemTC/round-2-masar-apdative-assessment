@@ -86,9 +86,9 @@ export default function SessionReportPage() {
       {cr.competency_id.slice(0, 8)}…
     </span>,
     <span key={`lvl-${cr.competency_id}`} className="font-semibold text-foreground">
-      {cr.level}
+      {cr.final_level}
     </span>,
-    <ConfidenceBar key={`conf-${cr.competency_id}`} value={cr.confidence} />,
+    <ConfidenceBar key={`conf-${cr.competency_id}`} value={cr.final_confidence} />,
     <span key={`qa-${cr.competency_id}`} className="tabular-nums text-foreground">
       {cr.questions_asked}
     </span>,

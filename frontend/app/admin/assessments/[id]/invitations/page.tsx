@@ -143,11 +143,22 @@ export default function InvitationsPage() {
             </thead>
             <tbody>
               {invitations.map((inv) => {
-                const isTaken = inv.status === "taken" && inv.session_id;
+                const isTaken = inv.status === "taken";
+                const handleRowClick = () => {
+                  if (!isTaken) return;
+                  if (!inv.session_id) {
+                    console.error(
+                      "Missing target report/session identifier for invitation marked as 'taken':",
+                      inv
+                    );
+                    return;
+                  }
+                  router.push(`/admin/sessions/${inv.session_id}`);
+                };
                 return (
                   <tr
                     key={inv.id}
-                    onClick={isTaken ? () => router.push(`/admin/sessions/${inv.session_id}`) : undefined}
+                    onClick={isTaken ? handleRowClick : undefined}
                     className={
                       "border-b border-border/60 last:border-b-0 transition-colors " +
                       (isTaken
@@ -158,7 +169,7 @@ export default function InvitationsPage() {
                     <td className="px-4 py-2.5 font-medium text-foreground">
                       {inv.candidate_email}
                     </td>
-                    <td className="px-4 py-2.5">
+                    <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
                       <StatusBadge status={inv.status} />
                     </td>
                     <td className="px-4 py-2.5 text-muted-foreground tabular-nums">

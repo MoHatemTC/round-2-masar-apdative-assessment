@@ -43,17 +43,53 @@ async def get_existing_answer(session_id: str, question_number: int):
     return {"exists": False, "answer": None}
 
 
+def _bank_uuid(question_id: str | None) -> str | None:
+    """The id of the bank row this answer belongs to, or None for a generated question.
+
+    Generated (bank-exhaustion) questions have no question_bank row, so the client sends
+    no usable id. Passing that straight into a uuid column or a PostgREST `.eq("id", ...)`
+    filter raises 22P02 and 500s the whole submission, so anything that isn't a real uuid
+    is treated as "not a bank question".
+    """
+    if not question_id or question_id in ("null", "undefined"):
+        return None
+    try:
+        return str(uuid.UUID(str(question_id)))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
+async def _question_from_state(db, session_id: str) -> dict:
+    """The question currently being served, read from the session's own agent_state.
+
+    Used when the answer is to a generated question: it isn't in question_bank, but the
+    engine keeps the full question (including its evaluation_criteria) in agent_state, so
+    rubric grading still has something to grade against instead of silently scoring blind.
+    """
+    try:
+        resp = await db.table("sessions").select("agent_state").eq(
+            "id", session_id
+        ).maybe_single().execute()
+        state = (_row(resp) or {}).get("agent_state") or {}
+        current = state.get("current_question")
+        return current if isinstance(current, dict) else {}
+    except Exception as e:
+        logger.warning(f"could not read current_question from agent_state: {type(e).__name__}: {e}")
+        return {}
+
+
 @router.post("/api/sessions/{session_id}/questions/{question_number}/voice-answer")
 async def submit_voice_answer(
     session_id: str,
     question_number: int,
     duration_ms: int = Form(...),
-    question_id: str = Form(...),
+    question_id: str | None = Form(None),
     audio: UploadFile | None = File(None),
     typed_answer: str | None = Form(None),
     skipped: bool = Form(False),
 ):
     db = await get_db()
+    bank_id = _bank_uuid(question_id)
 
     # --- fast-path idempotency check ---
     existing = await db.table("answers").select("*").eq(
@@ -68,7 +104,7 @@ async def submit_voice_answer(
             claimed = await db.table("answers").insert({
                 "session_id": session_id,
                 "question_number": question_number,
-                "question_id": question_id,
+                "question_id": bank_id,
                 "tool_type": "voice",
                 "skipped": True,
                 "answer_text": None,
@@ -86,15 +122,18 @@ async def submit_voice_answer(
             ).eq("question_number", question_number).maybe_single().execute()
             return {"status": "already_submitted", "answer": _row(existing)}
 
-    question_resp = await db.table("question_bank").select("*").eq(
-        "id", question_id
-    ).maybe_single().execute()
-    question = _row(question_resp) or {}
-    
+    if bank_id:
+        question_resp = await db.table("question_bank").select("*").eq(
+            "id", bank_id
+        ).maybe_single().execute()
+        question = _row(question_resp) or {}
+    else:
+        question = await _question_from_state(db, session_id)
+
     base_row = {
         "session_id": session_id,
         "question_number": question_number,
-        "question_id": question.get("id"),
+        "question_id": bank_id,
         "question_body": question.get("body"),
         "competency_id": question.get("competency_id"),
         "tool_type": "voice",

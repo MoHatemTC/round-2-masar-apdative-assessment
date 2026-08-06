@@ -9,8 +9,8 @@ export default function ThemeToggle() {
   // On first render, check what's already saved, or fall back to system preference.
   useEffect(() => {
     const stored = localStorage.getItem("theme");
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const shouldBeDark = stored ? stored === "dark" : prefersDark;
+    // Fall back to dark theme as default instead of system preference
+    const shouldBeDark = stored ? stored === "dark" : true;
 
     setIsDark(shouldBeDark);
     document.documentElement.classList.toggle("dark", shouldBeDark);

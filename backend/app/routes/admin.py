@@ -23,6 +23,13 @@ from app.ingestion.schemas import (
     QuestionBankImport,
 )
 
+from app.ingestion.normalize import (
+    is_flat_bank,
+    normalize_flat_bank,
+)
+
+from pydantic import ValidationError
+
 from app.ingestion.validators import (
     validate_import,
 )
@@ -99,15 +106,24 @@ async def question_bank_types():
 
 @router.post("/question-bank/import")
 async def import_bank(
-    payload: QuestionBankImport,
+    raw: list | dict = Body(...),
 ):
 
     """
     Import Question Bank.
 
+    Accepts BOTH upload formats:
+      * the PRD flat format — a bare JSON array of items (data/sample_question_bank.json),
+        or {"items": [...], "set_name": "..."} as the admin UI sends it — which is
+        normalized server-side, and
+      * the structured {competencies, questions, question_set} payload.
+
     Flow:
 
     JSON
+      |
+      v
+    normalize (flat -> structured, when needed)
       |
       v
     Pydantic validation
@@ -121,6 +137,28 @@ async def import_bank(
       v
     Supabase upserts
     """
+
+    if is_flat_bank(raw):
+        raw = normalize_flat_bank(raw)
+
+    try:
+        payload = QuestionBankImport.model_validate(raw)
+    except ValidationError as exc:
+        return {
+            "success": False,
+            "competencies_imported": 0,
+            "questions_imported": 0,
+            "question_set_items_imported": 0,
+            "errors": [
+                {
+                    # loc like ('questions', 3, 'text') -> row 3; -1 when not per-row
+                    "row": e["loc"][1] if len(e["loc"]) > 1 and isinstance(e["loc"][1], int) else -1,
+                    "field": ".".join(str(p) for p in e["loc"]),
+                    "message": e["msg"],
+                }
+                for e in exc.errors()
+            ],
+        }
 
 
     errors = validate_import(
@@ -197,8 +235,15 @@ async def set_competencies(
     db: AsyncClient = Depends(get_db),
 ):
     """
-    Return UUIDs of the parent competencies
-    covered by a question set.
+    Return the UUIDs of the competencies MEASURED by a question set — that is, the
+    competencies its questions are actually filed under (the sub-competencies).
+
+    These ids drive three things downstream, all of which must agree: the self-ratings
+    collected at intake, the per-competency loop in the adaptive engine, and the rows in
+    session_competency_results. The engine selects questions with
+    `question_bank.competency_id == <one of these ids>`, so returning the PARENT track ids
+    here made every lookup miss (questions hang off the subs), the bank look exhausted on
+    question 1, and every candidate got LLM-generated fallback questions instead of the bank.
     """
 
     items_response = (
@@ -226,7 +271,7 @@ async def set_competencies(
         .execute()
     )
 
-    sub_ids = list(
+    measured_ids = list(
         {
             q["competency_id"]
             for q in questions_response.data
@@ -234,25 +279,7 @@ async def set_competencies(
         }
     )
 
-    if not sub_ids:
-        return []
-
-    competencies_response = (
-        await db.table("competencies")
-        .select("parent_id")
-        .in_("id", sub_ids)
-        .execute()
-    )
-
-    track_ids = list(
-        {
-            row["parent_id"]
-            for row in competencies_response.data
-            if row.get("parent_id")
-        }
-    )
-
-    return track_ids
+    return measured_ids
 
 # =========================================================
 # Create Assessment
@@ -315,6 +342,52 @@ async def list_assessments(db: AsyncClient = Depends(get_db)):
     """
     response = await db.table("assessments").select("*").execute()
     return response.data
+
+
+@router.get("/sessions")
+async def list_sessions(
+    assessment_id: str | None = None,
+    db: AsyncClient = Depends(get_db),
+):
+    """Every candidate session, newest first, for the admin sessions dashboard.
+
+    Each row carries the score/band from `final_reports` when the session finished, so the
+    list can show results without the client fetching a report per row. Sessions that are
+    still running simply have those fields null. Optional `assessment_id` narrows the list
+    to one assessment.
+    """
+    query = db.table("sessions").select(
+        "id, assessment_id, candidate_name, candidate_email, status, created_at, completed_at"
+    )
+    if assessment_id:
+        query = query.eq("assessment_id", assessment_id)
+
+    sessions_response = await query.order("created_at", desc=True).execute()
+    sessions = sessions_response.data or []
+    if not sessions:
+        return []
+
+    # One extra round trip for all reports beats one per session row.
+    reports_response = (
+        await db.table("final_reports")
+        .select("session_id, overall_pct, level_label, has_low_confidence")
+        .in_("session_id", [s["id"] for s in sessions])
+        .execute()
+    )
+    reports = {r["session_id"]: r for r in (reports_response.data or [])}
+
+    return [
+        {
+            **session,
+            # The list links to /admin/sessions/{id}; session_id mirrors id so the page can
+            # use either without a special case.
+            "session_id": session["id"],
+            "overall_pct": reports.get(session["id"], {}).get("overall_pct"),
+            "level_label": reports.get(session["id"], {}).get("level_label"),
+            "has_low_confidence": reports.get(session["id"], {}).get("has_low_confidence"),
+        }
+        for session in sessions
+    ]
 
 
 @router.get("/sessions/{session_id}/report")
