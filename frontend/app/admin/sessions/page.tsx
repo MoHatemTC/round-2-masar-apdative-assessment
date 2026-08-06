@@ -104,11 +104,23 @@ export default function SessionsPage() {
             </thead>
             <tbody>
               {sessions.map((s) => {
-                const isCompleted = s.status === "completed";
+                const isCompleted = s.status === "completed" || s.status === "taken";
+                const handleRowClick = () => {
+                  if (!isCompleted) return;
+                  const targetId = s.session_id || s.id;
+                  if (!targetId) {
+                    console.error(
+                      `Missing target report/session identifier for session marked as '${s.status}':`,
+                      s
+                    );
+                    return;
+                  }
+                  router.push(`/admin/sessions/${targetId}`);
+                };
                 return (
                   <tr
                     key={s.id}
-                    onClick={isCompleted ? () => router.push(`/admin/sessions/${s.id}`) : undefined}
+                    onClick={isCompleted ? handleRowClick : undefined}
                     className={
                       "border-b border-border/60 last:border-b-0 transition-colors " +
                       (isCompleted
@@ -122,13 +134,13 @@ export default function SessionsPage() {
                     <td className="px-4 py-2.5 text-muted-foreground">
                       {s.candidate_email || "—"}
                     </td>
-                    <td className="px-4 py-2.5">
+                    <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
                       <StatusBadge status={s.status === "completed" ? "taken" : s.status === "in_progress" ? "in_progress" : "not_taken"} />
                     </td>
                     <td className="px-4 py-2.5 tabular-nums font-semibold text-foreground">
                       {s.overall_pct != null ? `${Math.round(s.overall_pct)}%` : "—"}
                     </td>
-                    <td className="px-4 py-2.5">
+                    <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
                       <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${s.level_label ? "bg-primary/15 text-primary" : "text-muted-foreground"}`}>
                         {s.level_label || "—"}
                       </span>

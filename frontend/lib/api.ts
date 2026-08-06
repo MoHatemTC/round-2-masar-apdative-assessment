@@ -243,6 +243,7 @@ export async function getAssessments(): Promise<Assessment[]> {
 
 export interface Session {
   id: string;
+  session_id?: string | null;
   assessment_id: string | null;
   candidate_name: string | null;
   candidate_email: string | null;

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import {
@@ -12,6 +13,7 @@ import {
 } from "@/lib/api";
 
 export default function InvitationsPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
 
   const [invitations, setInvitations] = useState<Invitation[]>([]);
@@ -21,6 +23,21 @@ export default function InvitationsPage() {
   const [selectedAssessment, setSelectedAssessment] = useState("");
   const [msg, setMsg] = useState("");
   const [sending, setSending] = useState(false);
+
+  const handleRowClick = (invite: Invitation, e: React.MouseEvent) => {
+    const isTaken = invite.status === "taken";
+    if (!isTaken) return;
+
+    if (!invite.session_id) {
+      console.error(
+        "Missing target report/session identifier for invitation marked as 'taken':",
+        invite
+      );
+      return;
+    }
+
+    router.push(`/admin/sessions/${invite.session_id}`);
+  };
 
   useEffect(() => {
     getAssessments()
@@ -205,35 +222,39 @@ async function handleInvite() {
                     </td>
                 </tr>
             ) : (
-                    invitations.map((invite) => (
-                        <tr
-                            key={invite.id}
-                            className="border-b hover:bg-gray-50 dark:hover:bg-gray-800
-                                        odd:bg-white even:bg-gray-50
-                                        dark:border-gray-700
-                                        dark:odd:bg-gray-900
-                                        dark:even:bg-gray-800"
-                        >
-                    <td className="p-3">
-                        {invite.candidate_email}
-                    </td>
+                    invitations.map((invite) => {
+                        const isTaken = invite.status === "taken";
+                        return (
+                            <tr
+                                key={invite.id}
+                                onClick={(e) => handleRowClick(invite, e)}
+                                className={`border-b transition-colors ${
+                                    isTaken
+                                        ? "cursor-pointer hover:bg-blue-50/50 dark:hover:bg-blue-950/20 active:bg-blue-100/50 dark:active:bg-blue-900/30"
+                                        : "hover:bg-gray-50 dark:hover:bg-gray-800 odd:bg-white even:bg-gray-50 dark:border-gray-700 dark:odd:bg-gray-900 dark:even:bg-gray-800"
+                                }`}
+                            >
+                                <td className="p-3">
+                                    {invite.candidate_email}
+                                </td>
 
-                    <td className="p-3">
-                        <span
-                            className={`px-3 py-1 rounded-full text-sm font-medium
-                            ${
-                                invite.status === "taken"
-                                    ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300"
-                                    : invite.status === "in_progress"
-                                    ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300"
-                                    : "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300"
-                            }`}
-                        >
-                            {invite.status.replace("_", " ")}
-                        </span>
-                    </td>
-                 </tr>
-                ))
+                                <td className="p-3">
+                                    <span
+                                        onClick={(e) => e.stopPropagation()}
+                                        className={`px-3 py-1 rounded-full text-sm font-medium ${
+                                            invite.status === "taken"
+                                                ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300"
+                                                : invite.status === "in_progress"
+                                                ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300"
+                                                : "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300"
+                                        }`}
+                                    >
+                                        {invite.status.replace("_", " ")}
+                                    </span>
+                                </td>
+                            </tr>
+                        );
+                    })
             )}
           </tbody>
 

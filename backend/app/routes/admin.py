@@ -338,6 +338,7 @@ async def list_sessions(db: AsyncClient = Depends(get_db)):
     for s in sessions:
         row = {
             "id": s["id"],
+            "session_id": s["id"],
             "assessment_id": s.get("assessment_id"),
             "candidate_name": s.get("candidate_name"),
             "candidate_email": s.get("candidate_email"),
@@ -416,7 +417,7 @@ async def list_invitations(assessment_id: UUID, db: AsyncClient = Depends(get_db
         email = inv.get("candidate_email")
         session_data = sessions_map.get(email, {})
         session_status = session_data.get("status")
-        session_id = session_data.get("session_id") # Grab the ID!
+        session_id = inv.get("session_id") or session_data.get("session_id")
 
         if session_status == "completed":
             status_label = "taken"
@@ -427,7 +428,7 @@ async def list_invitations(assessment_id: UUID, db: AsyncClient = Depends(get_db
 
         results.append({
             "id": inv.get("id"),
-            "session_id": session_id, # Frontend uses this for the drill-down link
+            "session_id": session_id,
             "candidate_email": email,
             "status": status_label,
             "invited_at": inv.get("created_at")
