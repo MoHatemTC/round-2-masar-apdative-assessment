@@ -179,6 +179,7 @@ async def submit_intake(session_id: str, body: dict = Body(...)):
         "cv_json": cv_json,
         "status": "in_progress",
         "intake_submitted_at": submitted_at,
+        "started_at": submitted_at,
     }).eq("id", session_id).execute()
 
     for competency_id, rating in self_ratings.items():
@@ -262,6 +263,7 @@ async def get_assessment_by_token(share_token: str):
     return {
     "assessment_id": assessment["id"],
     "title": assessment["title"],
+    "question_set_id": assessment.get("question_set_id"),
     "competencies": competencies,
     "time_limit_min": assessment.get("time_limit_min"),
 }

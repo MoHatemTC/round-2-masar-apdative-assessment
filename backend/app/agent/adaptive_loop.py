@@ -504,5 +504,6 @@ async def finalize(db, session: dict, state: dict) -> dict:
         "overall_pct": report_row.get("overall_pct"),
         "level_label": report_row.get("level_label"),
         "has_low_confidence": report_row.get("has_low_confidence", False),
+        "candidate_name": session.get("candidate_name"),
     }
     return state

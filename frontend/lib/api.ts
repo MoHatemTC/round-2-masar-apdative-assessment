@@ -17,6 +17,7 @@ export interface Question {
 export interface TurnResponse {
   complete: boolean;
   emit: Question | Record<string, unknown>;
+  seconds_left?: number | null;
 }
 
 export type ToolResult =
@@ -139,13 +140,29 @@ export async function getAssessmentByToken(token: string): Promise<AssessmentInf
   return apiRequest(`/assessments/by-token/${encodeURIComponent(token)}`);
 }
 
-export async function startSession(assessmentId: string, token?: string): Promise<{ session_id: string }> {
+export async function startSession(
+  assessmentId: string,
+  token?: string,
+  candidateName?: string,
+  candidateEmail?: string
+): Promise<{ session_id: string }> {
   return apiRequest("/session/start", {
     method: "POST",
     body: JSON.stringify({
       assessment_id: assessmentId,
-      token: token
+      token: token,
+      candidate_name: candidateName,
+      candidate_email: candidateEmail,
     }),
+  });
+}
+export async function startAnswerTimer(params: {
+  session_id: string;
+  question_number: number;
+}): Promise<{ deadline_at_ms: number; time_limit_seconds: number }> {
+  return apiRequest(`/session/${params.session_id}/answer-timer/start`, {
+    method: "POST",
+    body: JSON.stringify({ question_number: params.question_number }),
   });
 }
 

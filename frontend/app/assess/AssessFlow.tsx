@@ -14,11 +14,12 @@ import {
 } from "@/lib/api";
 import { getAnswerComponent } from "./tools/registry";
 import CompletionReport from "./CompletionReport";
+import RegistrationGate from "./RegistrationGate";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import RatingScale from "@/components/ui/RatingScale";
 
-type Step = "loading" | "invalid-link" | "welcome" | "intake" | "loop" | "done";
+type Step = "loading" | "invalid-link" | "register" | "welcome" | "intake" | "loop" | "done";
 
 const SESSION_STORAGE_PREFIX = "assess-session:";
 
@@ -27,21 +28,25 @@ const SESSION_STORAGE_PREFIX = "assess-session:";
 // calling startSession() again (which always inserts a brand-new session row)
 // or calling /chat/turn again (which isn't safe to resume with — pick_question
 // has no idempotency check and would silently serve a different question).
-function loadSavedSession(token: string): { sessionId: string; question: Question | null } | null {
+function loadSavedSession(token: string): { sessionId: string; question: Question | null; deadlineAt: number | null } | null {
   try {
     const raw = localStorage.getItem(SESSION_STORAGE_PREFIX + token);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed?.sessionId) return null;
-    return parsed;
+    return {
+      sessionId: parsed.sessionId,
+      question: parsed.question ?? null,
+      deadlineAt: parsed.deadlineAt ?? null,
+    };
   } catch {
     return null;
   }
 }
 
-function saveSession(token: string, sessionId: string, question: Question | null) {
+function saveSession(token: string, sessionId: string, question: Question | null, deadlineAt: number | null) {
   try {
-    localStorage.setItem(SESSION_STORAGE_PREFIX + token, JSON.stringify({ sessionId, question }));
+    localStorage.setItem(SESSION_STORAGE_PREFIX + token, JSON.stringify({ sessionId, question, deadlineAt }));
   } catch {
     // best-effort — worst case a refresh just restarts the session, same as today
   }
@@ -64,6 +69,8 @@ export default function AssessFlow() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [sessionId, setSessionId] = useState("");
+  const [candidateName, setCandidateName] = useState("");
+  const [candidateEmail, setCandidateEmail] = useState("");
   const [ratings, setRatings] = useState<Record<string, number>>({});
   const [cvFeedback, setCvFeedback] = useState<string | null>(null);
   const [cvUploading, setCvUploading] = useState(false);
@@ -88,6 +95,7 @@ export default function AssessFlow() {
       setSessionId(resumed.sessionId);
       if (resumed.question) {
         setQuestion(resumed.question);
+        setDeadlineAt(resumed.deadlineAt);
         setStep("loop");
       } else {
         setStep("intake");
@@ -97,7 +105,7 @@ export default function AssessFlow() {
     getAssessmentByToken(token)
       .then((info) => {
         setAssessment(info);
-        if (!resumed) setStep("welcome");
+        if (!resumed) setStep("register");
       })
       .catch((err) => {
         setLoadError(err instanceof Error ? err.message : "Could not load this assessment link.");
@@ -108,11 +116,10 @@ export default function AssessFlow() {
   async function beginIntake() {
     if (!assessment) return;
     setIntakeSubmitting(true);
-    setIntakeError(null);
     try {
-      const { session_id } = await startSession(assessment.assessment_id, token);
+      const { session_id } = await startSession(assessment.assessment_id, token ?? undefined, candidateName, candidateEmail);
       setSessionId(session_id);
-      if (token) saveSession(token, session_id, null);
+      if (token) saveSession(token, session_id, null, null);
       setStep("intake");
     } catch (err) {
       setIntakeError(err instanceof Error ? err.message : "Could not start the assessment.");
@@ -120,7 +127,7 @@ export default function AssessFlow() {
       setIntakeSubmitting(false);
     }
   }
-
+  
   async function handleCvUpload(file: File) {
     setCvFeedback(null);
     setCvUploading(true);
@@ -157,18 +164,15 @@ export default function AssessFlow() {
   }
 
 const [assessmentSecondsLeft, setAssessmentSecondsLeft] = useState<number | null>(null);
+const [deadlineAt, setDeadlineAt] = useState<number | null>(null);
 
 useEffect(() => {
-  if (assessment && assessmentSecondsLeft === null) {
-    setAssessmentSecondsLeft(assessment.time_limit_min * 60);
-  }
-}, [assessment]);
-
-useEffect(() => {
-  if (assessmentSecondsLeft === null || assessmentSecondsLeft <= 0) return;
-  const timer = setTimeout(() => setAssessmentSecondsLeft((s) => (s ?? 0) - 1), 1000);
-  return () => clearTimeout(timer);
-}, [assessmentSecondsLeft]);
+  if (deadlineAt === null) return;
+  const tick = () => setAssessmentSecondsLeft(Math.max(0, Math.round((deadlineAt - Date.now()) / 1000)));
+  tick();
+  const interval = setInterval(tick, 1000);
+  return () => clearInterval(interval);
+}, [deadlineAt]);
 
   async function next(toolResult?: ToolResult) {
     setIsSubmitting(true);
@@ -185,9 +189,12 @@ useEffect(() => {
         setStep("done");
         if (token) clearSavedSession(token);
       } else {
+        const newDeadline = typeof r.seconds_left === "number" ? Date.now() + r.seconds_left * 1000 : deadlineAt;
         setQuestion(r.emit as Question);
-        if (token) saveSession(token, sessionId, r.emit as Question);
+        setDeadlineAt(newDeadline);
+        if (token) saveSession(token, sessionId, r.emit as Question, newDeadline);
       }
+
     } catch (err) {
       // Without this, a failed turn (network issue, or a not-yet-implemented backend route)
       // left the screen blank with no indication anything went wrong.
@@ -223,6 +230,19 @@ useEffect(() => {
           </p>
         </Card>
       </main>
+    );
+  }
+
+  if (step === "register" && assessment) {
+    return (
+      <RegistrationGate
+        assessmentTitle={assessment.title}
+        onComplete={(name, email) => {
+          setCandidateName(name);
+          setCandidateEmail(email);
+          setStep("welcome");
+        }}
+      />
     );
   }
 
