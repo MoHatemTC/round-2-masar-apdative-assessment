@@ -55,6 +55,7 @@ class AssessmentResponse(BaseModel):
     question_set_id: UUID
     competency_ids: list[UUID]
     time_limit_min: int | None = 30
+    share_token: str | None = None
 
 # =========================================================
 # Invitation Schemas

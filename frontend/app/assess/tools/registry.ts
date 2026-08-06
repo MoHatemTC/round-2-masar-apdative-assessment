@@ -22,6 +22,7 @@ export const answerComponentRegistry: Record<string, ComponentType<any>> = {
   mcq: Mcq,
   voice: VoiceRecorder,
   open_ended: VoiceRecorder,
+  text: VoiceRecorder,
   visualization: DataAnalysis,
   coding: MonacoEditor,
 };
