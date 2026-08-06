@@ -90,8 +90,7 @@ async def submit_voice_answer(
         "id", question_id
     ).maybe_single().execute()
     question = _row(question_resp) or {}
-    logger.info(f"Received question_id: {question_id}")
-    logger.info(f"Question lookup result: {question}")
+    logger.debug("voice-answer lookup: question_id=%s found=%s", question_id, bool(question))
     
     base_row = {
         "session_id": session_id,
