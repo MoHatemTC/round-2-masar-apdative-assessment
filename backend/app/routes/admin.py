@@ -225,6 +225,11 @@ async def import_bank(
 
 
 
+@router.get("/competency-tracks")
+async def list_competency_tracks(db: AsyncClient = Depends(get_db)):
+    result = await db.table("competencies").select("id, name, code").order("name").execute()
+    return result.data or []
+
 # =========================================================
 # Question Set Competencies
 # =========================================================

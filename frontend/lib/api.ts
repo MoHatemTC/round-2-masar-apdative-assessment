@@ -267,8 +267,8 @@ export async function importBank(
   });
 }
 
-export async function getAssessments(page: number = 1): Promise<PaginatedResponse<Assessment>> {
-  return apiRequest<PaginatedResponse<Assessment>>(`/admin/assessments?page=${page}`);
+export async function getAssessments(page: number = 1, limit: number = 10): Promise<PaginatedResponse<Assessment>> {
+  return apiRequest<PaginatedResponse<Assessment>>(`/admin/assessments?page=${page}&limit=${limit}`);
 }
 
 // A row in the admin sessions list (GET /admin/sessions). Score and band come from
@@ -310,6 +310,16 @@ export interface QuestionSet {
 
 export async function getQuestionSets(): Promise<QuestionSet[]> {
   return apiRequest<QuestionSet[]>("/admin/question-sets/");
+}
+
+export interface CompetencyTrack {
+  id: string;
+  name: string;
+  code?: string;
+}
+
+export async function getCompetencyTracks(): Promise<CompetencyTrack[]> {
+  return apiRequest<CompetencyTrack[]>("/admin/competency-tracks");
 }
 
 export async function createAssessment(payload: AssessmentCreate): Promise<Assessment> {

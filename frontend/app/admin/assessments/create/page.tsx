@@ -5,7 +5,14 @@ import { useRouter } from "next/navigation";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import FormField from "@/components/ui/FormField";
-import { createAssessment, getCompetencies, getQuestionSets, type QuestionSet } from "@/lib/api";
+import {
+  createAssessment,
+  getCompetencies,
+  getQuestionSets,
+  getCompetencyTracks,
+  type QuestionSet,
+  type CompetencyTrack,
+} from "@/lib/api";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -27,11 +34,17 @@ export default function CreateAssessmentPage() {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const comboboxRef = useRef<HTMLDivElement>(null);
 
+  const [allTracks, setAllTracks] = useState<CompetencyTrack[]>([]);
+
   useEffect(() => {
     getQuestionSets()
       .then(setQuestionSets)
       .catch(() => {})
       .finally(() => setQuestionSetsLoading(false));
+
+    getCompetencyTracks()
+      .then(setAllTracks)
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -43,6 +56,12 @@ export default function CreateAssessmentPage() {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  const trackNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    allTracks.forEach((t) => map.set(t.id, t.name));
+    return map;
+  }, [allTracks]);
 
   const filteredSets = useMemo(() => {
     if (!searchTerm.trim()) return questionSets;
@@ -216,10 +235,11 @@ export default function CreateAssessmentPage() {
             {competenciesError && (
               <p className="mt-2 text-xs text-red-600 dark:text-red-400">{competenciesError}</p>
             )}
+
             {competencies.length > 0 && (
               <div className="mt-2">
                 <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
-                  Competency Track IDs
+                  Measured Competency Tracks
                 </span>
                 <div className="mt-1 flex flex-wrap gap-2">
                   {competencies.map((id) => (
@@ -227,7 +247,7 @@ export default function CreateAssessmentPage() {
                       key={id}
                       className="inline-flex items-center rounded-full bg-blue-100 dark:bg-blue-900/40 px-3 py-1 text-xs font-medium text-blue-800 dark:text-blue-300"
                     >
-                      {id}
+                      {trackNameMap.get(id) || id}
                     </span>
                   ))}
                 </div>
