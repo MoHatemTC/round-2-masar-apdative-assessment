@@ -1,22 +1,29 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
+import Pagination from "@/components/ui/Pagination";
 import {
   getInvitations,
   getAssessments,
   sendInvitation,
   type Invitation,
-  type Assessment
+  type Assessment,
+  type PaginationMeta,
 } from "@/lib/api";
 
 export default function InvitationsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
 
+  const pageParam = Number(searchParams.get("page")) || 1;
+  const [currentPage, setCurrentPage] = useState(pageParam);
+
   const [invitations, setInvitations] = useState<Invitation[]>([]);
+  const [meta, setMeta] = useState<PaginationMeta>({ currentPage: 1, totalPages: 1, totalItems: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [assessments, setAssessments] = useState<Assessment[]>([]);
@@ -41,7 +48,7 @@ export default function InvitationsPage() {
 
   useEffect(() => {
     getAssessments()
-        .then(setAssessments)
+        .then((res) => setAssessments(res.data))
         .catch((err) =>
             setError(
                 err instanceof Error
@@ -54,15 +61,17 @@ export default function InvitationsPage() {
   useEffect(() => {
     if (!selectedAssessment) {
         setInvitations([]);
+        setMeta({ currentPage: 1, totalPages: 1, totalItems: 0 });
         setLoading(false);
         return;
     }
 
     setLoading(true);
 
-    getInvitations(selectedAssessment)
-        .then((data) => {
-            setInvitations(data);
+    getInvitations(selectedAssessment, currentPage)
+        .then((res) => {
+            setInvitations(res.data);
+            setMeta(res.meta);
             setError(null);
         })
         .catch((err) => {
@@ -73,7 +82,27 @@ export default function InvitationsPage() {
             );
         })
         .finally(() => setLoading(false));
-  }, [selectedAssessment]);
+  }, [selectedAssessment, currentPage]);
+
+  function handleAssessmentChange(value: string) {
+    setSelectedAssessment(value);
+    setCurrentPage(1);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("page", "1");
+    if (value) {
+      params.set("assessmentId", value);
+    } else {
+      params.delete("assessmentId");
+    }
+    router.push(`?${params.toString()}`, { scroll: false });
+  }
+
+  function handlePageChange(page: number) {
+    setCurrentPage(page);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("page", String(page));
+    router.push(`?${params.toString()}`, { scroll: false });
+  }
 
 async function handleInvite() {
   setSending(true);
@@ -85,8 +114,9 @@ async function handleInvite() {
 
     setEmail("");
 
-    const updated = await getInvitations(selectedAssessment);
-    setInvitations(updated);
+    const updated = await getInvitations(selectedAssessment, currentPage);
+    setInvitations(updated.data);
+    setMeta(updated.meta);
 
     setMsg("Invitation sent successfully.");
   } catch (err) {
@@ -123,7 +153,7 @@ async function handleInvite() {
 
         <select
             value={selectedAssessment}
-            onChange={(e) => setSelectedAssessment(e.target.value)}
+            onChange={(e) => handleAssessmentChange(e.target.value)}
             className="w-full rounded-md border border-gray-300 bg-white p-2 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
         >
             {assessments.length === 0 ? (
@@ -170,7 +200,7 @@ async function handleInvite() {
 
             <span className="text-sm text-gray-500 dark:text-gray-400">
                 {selectedAssessment
-                    ? `${invitations.length} invitation${invitations.length !== 1 ? "s" : ""}`
+                    ? `${meta.totalItems} invitation${meta.totalItems !== 1 ? "s" : ""}`
                     : "No assessment selected"}
             </span>
         </div>
@@ -260,6 +290,11 @@ async function handleInvite() {
 
         </table>
         </div>
+        <Pagination
+          currentPage={meta.currentPage}
+          totalPages={meta.totalPages}
+          onPageChange={handlePageChange}
+        />
       </Card>
 
       {msg && (

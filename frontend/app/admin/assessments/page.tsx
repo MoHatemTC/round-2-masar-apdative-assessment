@@ -1,29 +1,46 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import Card from "@/components/ui/Card";
 import Table from "@/components/ui/Table";
 import Button from "@/components/ui/Button";
-import { getAssessments, type Assessment } from "@/lib/api";
+import Pagination from "@/components/ui/Pagination";
+import { getAssessments, type Assessment, type PaginationMeta } from "@/lib/api";
 
-export default function AssessmentsPage() {
+function AssessmentsContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const pageParam = Number(searchParams.get("page")) || 1;
+  const [currentPage, setCurrentPage] = useState(pageParam);
 
   const [assessments, setAssessments] = useState<Assessment[]>([]);
+  const [meta, setMeta] = useState<PaginationMeta>({ currentPage: 1, totalPages: 1, totalItems: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    getAssessments()
-      .then((data) => {
-        setAssessments(data);
+    setLoading(true);
+    getAssessments(currentPage)
+      .then((res) => {
+        setAssessments(res.data);
+        setMeta(res.meta);
         setLoading(false);
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : "Failed to load assessments");
         setLoading(false);
       });
-  }, []);
+  }, [currentPage]);
+
+  function handlePageChange(page: number) {
+    setCurrentPage(page);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("page", String(page));
+    router.push(`?${params.toString()}`, { scroll: false });
+  }
 
   if (loading) {
     return (
@@ -82,7 +99,20 @@ export default function AssessmentsPage() {
       </div>
       <Card>
         <Table headers={tableHeaders} rows={tableRows} />
+        <Pagination
+          currentPage={meta.currentPage}
+          totalPages={meta.totalPages}
+          onPageChange={handlePageChange}
+        />
       </Card>
     </div>
+  );
+}
+
+export default function AssessmentsPage() {
+  return (
+    <Suspense fallback={<div className="p-6 sm:p-10"><Card><div className="flex items-center justify-center py-12"><div className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600" /><span className="ml-3 text-sm text-gray-500 dark:text-gray-400">Loading…</span></div></Card></div>}>
+      <AssessmentsContent />
+    </Suspense>
   );
 }

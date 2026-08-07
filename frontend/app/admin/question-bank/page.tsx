@@ -1,23 +1,33 @@
 "use client";
 // Admin: paste/upload a question-bank JSON → import → it becomes a Question Set.  [TODO: build out]
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { 
   importBank,
   browseQuestions,
   type QuestionBrowserItem,
-  listCompetencies
- } from "@/lib/api";
+  listCompetencies,
+  type PaginationMeta,
+} from "@/lib/api";
 
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
+import Pagination from "@/components/ui/Pagination";
 
-export default function QuestionBankPage() {
+function QuestionBankContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const pageParam = Number(searchParams.get("page")) || 1;
+  const [currentPage, setCurrentPage] = useState(pageParam);
+
   const [json, setJson] = useState("");
   const [setName, setSetName] = useState("");
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   const [isImporting, setIsImporting] = useState(false);
   const [questions, setQuestions] = useState<QuestionBrowserItem[]>([]);
+  const [meta, setMeta] = useState<PaginationMeta>({ currentPage: 1, totalPages: 1, totalItems: 0 });
   const [toolType, setToolType] = useState("");
   const [competency, setCompetency] = useState("");
   const [difficulty, setDifficulty] = useState("");
@@ -42,14 +52,17 @@ export default function QuestionBankPage() {
       difficulty: difficulty
         ? Number(difficulty)
         : undefined,
+      }, currentPage)
+      .then((res) => {
+        setQuestions(res.data);
+        setMeta(res.meta);
       })
-        .then(setQuestions)
-        .catch((e) => {
-          console.error(e);
-          setErr("Failed to load questions.");
-        })
-        .finally(() => setLoadingQuestions(false));
-    }, [toolType, competency, difficulty]);
+      .catch((e) => {
+        console.error(e);
+        setErr("Failed to load questions.");
+      })
+      .finally(() => setLoadingQuestions(false));
+    }, [toolType, competency, difficulty, currentPage]);
 
     useEffect(() => {
       async function loadCompetencies() {
@@ -64,6 +77,21 @@ export default function QuestionBankPage() {
 
     loadCompetencies();
   }, []);
+
+  function handleFilterChange(setter: (val: string) => void, value: string) {
+    setter(value);
+    setCurrentPage(1);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("page", "1");
+    router.push(`?${params.toString()}`, { scroll: false });
+  }
+
+  function handlePageChange(page: number) {
+    setCurrentPage(page);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("page", String(page));
+    router.push(`?${params.toString()}`, { scroll: false });
+  }
 
 function openFilePicker() {
   fileInputRef.current?.click();
@@ -129,13 +157,15 @@ async function handleFileSelected(
       setSetName("");
       setLoadingQuestions(true);
 
+      setCurrentPage(1);
       const updated = await browseQuestions({
         tool_type: toolType || undefined,
         competency: competency || undefined,
         difficulty: difficulty ? Number(difficulty) : undefined,
-      });
+      }, 1);
 
-      setQuestions(updated);
+      setQuestions(updated.data);
+      setMeta(updated.meta);
 
       const comps = await listCompetencies();
       setCompetencies(comps);
@@ -172,7 +202,7 @@ async function handleFileSelected(
         <label className="mb-1 block text-sm font-medium">
           Tool Type
         </label>
-        <select disabled={loadingQuestions} className="w-full rounded-md border border-gray-300 bg-white p-2 text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white" value={toolType} onChange={(e) => setToolType(e.target.value)}>
+        <select disabled={loadingQuestions} className="w-full rounded-md border border-gray-300 bg-white p-2 text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white" value={toolType} onChange={(e) => handleFilterChange(setToolType, e.target.value)}>
           <option value="">All</option>
           <option value="mcq">MCQ</option>
           <option value="coding">Coding</option>
@@ -189,7 +219,7 @@ async function handleFileSelected(
           disabled={loadingQuestions}
           className="w-full rounded-md border border-gray-300 bg-white p-2 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
           value={competency}
-          onChange={(e) => setCompetency(e.target.value)}
+          onChange={(e) => handleFilterChange(setCompetency, e.target.value)}
         >
           <option value="">All Competencies</option>
 
@@ -205,7 +235,7 @@ async function handleFileSelected(
         <label className="mb-1 block text-sm font-medium">
           Difficulty
         </label>
-        <select disabled={loadingQuestions} className="w-full rounded-md border border-gray-300 bg-white p-2 dark:border-gray-700 dark:bg-gray-800 dark:text-white" value={difficulty} onChange={(e) => setDifficulty(e.target.value)}>
+        <select disabled={loadingQuestions} className="w-full rounded-md border border-gray-300 bg-white p-2 dark:border-gray-700 dark:bg-gray-800 dark:text-white" value={difficulty} onChange={(e) => handleFilterChange(setDifficulty, e.target.value)}>
           <option value="">All Difficulties</option>
           <option value="1">1</option>
           <option value="2">2</option>
@@ -227,7 +257,7 @@ async function handleFileSelected(
           </h2>
 
           <span className="text-sm text-gray-500 dark:text-gray-400">
-            {loadingQuestions ? "Loading..." : `${questions.length} questions`}
+            {loadingQuestions ? "Loading..." : `${meta.totalItems} questions`}
           </span>
         </div>
 
@@ -272,6 +302,11 @@ async function handleFileSelected(
             )}
           </tbody>
         </table>
+        <Pagination
+          currentPage={meta.currentPage}
+          totalPages={meta.totalPages}
+          onPageChange={handlePageChange}
+        />
       </Card>
 
       <input
@@ -332,5 +367,13 @@ async function handleFileSelected(
         </Card>
       )}
     </main>
+  );
+}
+
+export default function QuestionBankPage() {
+  return (
+    <Suspense fallback={<main className="max-w-4xl mx-auto p-8"><Card><div className="flex items-center justify-center py-12"><div className="h-5 w-5 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600"></div><span className="ml-3">Loading…</span></div></Card></main>}>
+      <QuestionBankContent />
+    </Suspense>
   );
 }

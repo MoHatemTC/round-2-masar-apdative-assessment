@@ -1,30 +1,45 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Card from "@/components/ui/Card";
-import Table from "@/components/ui/Table";
 import Button from "@/components/ui/Button";
 import StatusBadge from "@/components/ui/StatusBadge";
-import { getSessions, type Session } from "@/lib/api";
+import Pagination from "@/components/ui/Pagination";
+import { getSessions, type Session, type PaginationMeta } from "@/lib/api";
 
-export default function SessionsPage() {
+function SessionsContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const pageParam = Number(searchParams.get("page")) || 1;
+  const [currentPage, setCurrentPage] = useState(pageParam);
+
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [meta, setMeta] = useState<PaginationMeta>({ currentPage: 1, totalPages: 1, totalItems: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    getSessions()
-      .then((data) => {
-        setSessions(data);
+    setLoading(true);
+    getSessions(undefined, currentPage)
+      .then((res) => {
+        setSessions(res.data);
+        setMeta(res.meta);
         setLoading(false);
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : "Failed to load sessions");
         setLoading(false);
       });
-  }, []);
+  }, [currentPage]);
+
+  function handlePageChange(page: number) {
+    setCurrentPage(page);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("page", String(page));
+    router.push(`?${params.toString()}`, { scroll: false });
+  }
 
   if (loading) {
     return (
@@ -55,29 +70,6 @@ export default function SessionsPage() {
   }
 
   const tableHeaders = ["Candidate", "Email", "Status", "Score", "Band", "Created"];
-
-  const tableRows = sessions.map((s) => [
-    <span key={`name-${s.id}`} className="font-medium text-foreground">
-      {s.candidate_name || "—"}
-    </span>,
-    <span key={`email-${s.id}`} className="text-sm text-muted-foreground">
-      {s.candidate_email || "—"}
-    </span>,
-    <StatusBadge key={`status-${s.id}`} status={s.status === "completed" ? "taken" : s.status === "in_progress" ? "in_progress" : "not_taken"} />,
-    <span key={`score-${s.id}`} className="tabular-nums font-semibold text-foreground">
-      {s.overall_pct != null ? `${Math.round(s.overall_pct)}%` : "—"}
-    </span>,
-    <span key={`band-${s.id}`} className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${s.level_label ? "bg-primary/15 text-primary" : "text-muted-foreground"}`}>
-      {s.level_label || "—"}
-    </span>,
-    <span key={`date-${s.id}`} className="text-sm text-muted-foreground tabular-nums">
-      {new Date(s.created_at).toLocaleDateString("en-US", {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      })}
-    </span>,
-  ]);
 
   return (
     <div className="p-6 sm:p-10">
@@ -165,7 +157,20 @@ export default function SessionsPage() {
             </tbody>
           </table>
         </div>
+        <Pagination
+          currentPage={meta.currentPage}
+          totalPages={meta.totalPages}
+          onPageChange={handlePageChange}
+        />
       </Card>
     </div>
+  );
+}
+
+export default function SessionsPage() {
+  return (
+    <Suspense fallback={<div className="p-6 sm:p-10"><Card><div className="flex items-center justify-center py-12"><div className="h-6 w-6 animate-spin rounded-full border-2 border-border border-t-primary" /><span className="ml-3 text-sm text-muted-foreground">Loading…</span></div></Card></div>}>
+      <SessionsContent />
+    </Suspense>
   );
 }

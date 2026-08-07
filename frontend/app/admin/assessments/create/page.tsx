@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import FormField from "@/components/ui/FormField";
-import { createAssessment, getCompetencies } from "@/lib/api";
+import { createAssessment, getCompetencies, getQuestionSets, type QuestionSet } from "@/lib/api";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -20,6 +20,68 @@ export default function CreateAssessmentPage() {
   const [competenciesError, setCompetenciesError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const [questionSets, setQuestionSets] = useState<QuestionSet[]>([]);
+  const [questionSetsLoading, setQuestionSetsLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const comboboxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    getQuestionSets()
+      .then(setQuestionSets)
+      .catch(() => {})
+      .finally(() => setQuestionSetsLoading(false));
+  }, []);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (comboboxRef.current && !comboboxRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const filteredSets = useMemo(() => {
+    if (!searchTerm.trim()) return questionSets;
+    const lower = searchTerm.toLowerCase();
+    return questionSets.filter(
+      (qs) =>
+        qs.name.toLowerCase().includes(lower) ||
+        qs.id.toLowerCase().includes(lower)
+    );
+  }, [questionSets, searchTerm]);
+
+  const selectedSetName = useMemo(() => {
+    const found = questionSets.find((qs) => qs.id === questionSetId);
+    return found?.name || "";
+  }, [questionSets, questionSetId]);
+
+  function handleSelectSet(qs: QuestionSet) {
+    setQuestionSetId(qs.id);
+    setSearchTerm(qs.name);
+    setDropdownOpen(false);
+  }
+
+  function handleInputChange(value: string) {
+    setSearchTerm(value);
+    setDropdownOpen(true);
+    const exact = questionSets.find((qs) => qs.name.toLowerCase() === value.toLowerCase());
+    if (exact) {
+      setQuestionSetId(exact.id);
+    } else {
+      setQuestionSetId("");
+    }
+  }
+
+  function handleInputFocus() {
+    setDropdownOpen(true);
+    if (questionSetId && selectedSetName) {
+      setSearchTerm(selectedSetName);
+    }
+  }
 
   useEffect(() => {
     if (!UUID_REGEX.test(questionSetId)) {
@@ -83,12 +145,68 @@ export default function CreateAssessmentPage() {
           />
 
           <div className="flex flex-col gap-1">
-            <FormField
-              label="Question Set ID"
-              value={questionSetId}
-              onChange={setQuestionSetId}
-              placeholder="e.g. 550e8400-e29b-41d4-a716-446655440000"
-            />
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-foreground/90 tracking-tight">
+                Question Set
+              </label>
+              <div ref={comboboxRef} className="relative">
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => handleInputChange(e.target.value)}
+                  onFocus={handleInputFocus}
+                  placeholder={questionSetsLoading ? "Loading question sets…" : "Search by name…"}
+                  disabled={questionSetsLoading}
+                  className={
+                    "w-full rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground " +
+                    "placeholder:text-muted-foreground shadow-inner-sm " +
+                    "transition-colors duration-150 " +
+                    "hover:border-[color:var(--accent-strong)]/50 " +
+                    "focus:outline-none focus:border-[color:var(--ring)] focus:ring-2 focus:ring-ring/40 " +
+                    "disabled:opacity-50 disabled:cursor-not-allowed"
+                  }
+                />
+                {questionSetId && !dropdownOpen && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setQuestionSetId("");
+                      setSearchTerm("");
+                      setCompetencies([]);
+                    }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                      <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                    </svg>
+                  </button>
+                )}
+                {dropdownOpen && (
+                  <ul className="absolute z-50 mt-1 max-h-56 w-full overflow-auto rounded-md border border-input bg-card py-1 shadow-lg">
+                    {filteredSets.length === 0 ? (
+                      <li className="px-3 py-2 text-sm text-muted-foreground italic">
+                        No question sets found.
+                      </li>
+                    ) : (
+                      filteredSets.map((qs) => (
+                        <li
+                          key={qs.id}
+                          onClick={() => handleSelectSet(qs)}
+                          className={
+                            "flex flex-col gap-0.5 cursor-pointer px-3 py-2 text-sm transition-colors " +
+                            "hover:bg-primary/10 " +
+                            (qs.id === questionSetId ? "bg-primary/5 text-primary font-medium" : "text-foreground")
+                          }
+                        >
+                          <span>{qs.name}</span>
+                          <span className="text-xs text-muted-foreground font-mono">{qs.id}</span>
+                        </li>
+                      ))
+                    )}
+                  </ul>
+                )}
+              </div>
+            </div>
             {competenciesLoading && (
               <div className="mt-2 flex items-center gap-2">
                 <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600" />

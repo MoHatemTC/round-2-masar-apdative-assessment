@@ -7,7 +7,8 @@ Admin API:
 """
 
 from __future__ import annotations
-from fastapi import APIRouter, Body, HTTPException, Depends
+import math
+from fastapi import APIRouter, Body, HTTPException, Depends, Query
 from pydantic import BaseModel
 from uuid import UUID
 import os
@@ -334,19 +335,38 @@ async def create_assessment(
 
     return insert_response.data[0]
 
-@router.get("/assessments", response_model=list[AssessmentResponse])
-async def list_assessments(db: AsyncClient = Depends(get_db)):
+@router.get("/assessments")
+async def list_assessments(
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
+    db: AsyncClient = Depends(get_db),
+):
     """
     Queries the database for all created assessments
     and returns them to the admin dashboard.
     """
-    response = await db.table("assessments").select("*").execute()
-    return response.data
+    count_response = await db.table("assessments").select("*", count="exact").execute()
+    total_items = count_response.count or 0
+    total_pages = max(1, math.ceil(total_items / limit))
+
+    offset = (page - 1) * limit
+    response = await db.table("assessments").select("*").range(offset, offset + limit - 1).execute()
+
+    return {
+        "data": response.data,
+        "meta": {
+            "currentPage": page,
+            "totalPages": total_pages,
+            "totalItems": total_items,
+        },
+    }
 
 
 @router.get("/sessions")
 async def list_sessions(
     assessment_id: str | None = None,
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
     db: AsyncClient = Depends(get_db),
 ):
     """Every candidate session, newest first, for the admin sessions dashboard.
@@ -356,16 +376,32 @@ async def list_sessions(
     still running simply have those fields null. Optional `assessment_id` narrows the list
     to one assessment.
     """
+    count_query = db.table("sessions").select("*", count="exact")
+    if assessment_id:
+        count_query = count_query.eq("assessment_id", assessment_id)
+    count_response = await count_query.execute()
+    total_items = count_response.count or 0
+    total_pages = max(1, math.ceil(total_items / limit))
+
+    offset = (page - 1) * limit
     query = db.table("sessions").select(
         "id, assessment_id, candidate_name, candidate_email, status, created_at, completed_at"
     )
     if assessment_id:
         query = query.eq("assessment_id", assessment_id)
 
-    sessions_response = await query.order("created_at", desc=True).execute()
+    sessions_response = await query.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
     sessions = sessions_response.data or []
+
     if not sessions:
-        return []
+        return {
+            "data": [],
+            "meta": {
+                "currentPage": page,
+                "totalPages": total_pages,
+                "totalItems": total_items,
+            },
+        }
 
     # One extra round trip for all reports beats one per session row.
     reports_response = (
@@ -376,7 +412,7 @@ async def list_sessions(
     )
     reports = {r["session_id"]: r for r in (reports_response.data or [])}
 
-    return [
+    data = [
         {
             **session,
             # The list links to /admin/sessions/{id}; session_id mirrors id so the page can
@@ -388,6 +424,15 @@ async def list_sessions(
         }
         for session in sessions
     ]
+
+    return {
+        "data": data,
+        "meta": {
+            "currentPage": page,
+            "totalPages": total_pages,
+            "totalItems": total_items,
+        },
+    }
 
 
 @router.get("/sessions/{session_id}/report")
@@ -435,9 +480,19 @@ async def get_report(session_id: str, db: AsyncClient = Depends(get_db)):
     }
 
 @router.get("/assessments/{assessment_id}/invitations")
-async def list_invitations(assessment_id: UUID, db: AsyncClient = Depends(get_db)):
+async def list_invitations(
+    assessment_id: UUID,
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
+    db: AsyncClient = Depends(get_db),
+):
     """Lists invitations and cross-references session status for each candidate."""
-    invitations_response = await db.table("invitations").select("*").eq("assessment_id", str(assessment_id)).execute()
+    count_response = await db.table("invitations").select("*", count="exact").eq("assessment_id", str(assessment_id)).execute()
+    total_items = count_response.count or 0
+    total_pages = max(1, math.ceil(total_items / limit))
+
+    offset = (page - 1) * limit
+    invitations_response = await db.table("invitations").select("*").eq("assessment_id", str(assessment_id)).range(offset, offset + limit - 1).execute()
     invitations = invitations_response.data or []
 
     # Fetch status AND id to pass to the frontend
@@ -468,7 +523,14 @@ async def list_invitations(assessment_id: UUID, db: AsyncClient = Depends(get_db
             "invited_at": inv.get("created_at")
         })
 
-    return results
+    return {
+        "data": results,
+        "meta": {
+            "currentPage": page,
+            "totalPages": total_pages,
+            "totalItems": total_items,
+        },
+    }
 
 # =========================================================
 # Invitations
