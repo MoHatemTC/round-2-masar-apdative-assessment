@@ -126,8 +126,11 @@ async def call_llm_vision(
         try:
             response = await client.chat.completions.create(
                 model=VISION_MODEL,
-                messages=[{"role": "user", "content": content}],
-                max_completion_tokens=MAX_TOKENS,
+                messages=[
+                    {"role": "system", "content": "You are a JSON-only API. Never use <think> tags or any reasoning blocks. Output ONLY the requested JSON array, nothing else."},
+                    {"role": "user", "content": content},
+                ],
+                max_completion_tokens=MAX_TOKENS * 2,
             )
             # Some models (Qwen3) put the answer in .content and reasoning
             # in .reasoning_content. Fall back to reasoning if content is empty.
