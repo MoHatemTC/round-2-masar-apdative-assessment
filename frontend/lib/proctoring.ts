@@ -8,7 +8,7 @@
 
 // API base — falls back to localhost:8000 for dev.
 export const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
+  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 // ---------- Types -----------------------------------------------------------
 

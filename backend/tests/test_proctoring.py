@@ -172,6 +172,17 @@ class TestParseVerdicts:
         out = _parse_verdicts("", 2)
         assert len(out) == 2
 
+    def test_strips_think_tags(self):
+        inner = json.dumps([{
+            "person_present": True, "same_person_as_reference": True,
+            "multiple_people": False, "phone_visible": False,
+            "looking_away": False, "confidence": 0.9
+        }])
+        text = "<think>\nSome reasoning with [brackets] inside\n</think>\n" + inner
+        out = _parse_verdicts(text, 1)
+        assert out[0]["person_present"] is True
+        assert out[0]["confidence"] == 0.9
+
 
 # ============================================================================
 # Golden set assertions (repository-level)
