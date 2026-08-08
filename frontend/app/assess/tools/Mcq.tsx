@@ -67,24 +67,26 @@ export default function Mcq({ question, onSubmit, isSubmitting = false }: McqPro
         ))}
       </fieldset>
 
-      <button
-        type="button"
-        onClick={handleSubmit}
-        disabled={isSubmitting || selected === null}
-        className="flex-1 sm:flex-none px-4 py-2 rounded-md bg-blue-600 text-white font-medium
-          disabled:opacity-50 disabled:cursor-not-allowed
-          hover:bg-blue-700 dark:hover:bg-blue-500 transition-colors"
-      >
-        {isSubmitting ? "Submitting…" : "Submit Answer"}
-      </button>
-      <button
-        type="button"
-        onClick={handleSkip}
-        disabled={isSubmitting}
-        className="px-4 py-2 rounded-md border border-gray-300 dark:border-neutral-700 text-sm"
-      >
-        Skip
-      </button>
+      <div className="mt-6 flex flex-wrap gap-3">
+        <button
+          type="button"
+          onClick={handleSubmit}
+          disabled={isSubmitting || selected === null}
+          className="flex-1 sm:flex-none px-4 py-2 rounded-md bg-blue-600 text-white font-medium
+            disabled:opacity-50 disabled:cursor-not-allowed
+            hover:bg-blue-700 dark:hover:bg-blue-500 transition-colors"
+        >
+          {isSubmitting ? "Submitting…" : "Submit Answer"}
+        </button>
+        <button
+          type="button"
+          onClick={handleSkip}
+          disabled={isSubmitting}
+          className="px-4 py-2 rounded-md border border-gray-300 dark:border-neutral-700 text-sm"
+        >
+          Skip
+        </button>
+      </div>
     </div>
   );
 }

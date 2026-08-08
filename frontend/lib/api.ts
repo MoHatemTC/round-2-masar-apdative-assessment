@@ -116,7 +116,8 @@ export interface AnswerDetail {
   tool_type: string;
   score: number;
   rationale: string;
-  answer_text: string;
+  answer_text: string | null;
+  transcript?: string | null;
   flagged: boolean;
 }
 

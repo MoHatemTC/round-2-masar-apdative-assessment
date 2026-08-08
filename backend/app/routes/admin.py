@@ -469,7 +469,7 @@ async def get_report(session_id: str, db: AsyncClient = Depends(get_db)):
 
     answers_response = (
         await db.table("answers")
-        .select("question_number, question_body, tool_type, score, rationale, answer_text, flagged")
+        .select("question_number, question_body, tool_type, score, rationale, answer_text, transcript, flagged")
         .eq("session_id", session_id)
         .order("question_number")
         .execute()

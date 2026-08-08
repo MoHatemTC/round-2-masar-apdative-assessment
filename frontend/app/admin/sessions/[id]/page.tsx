@@ -297,7 +297,7 @@ function AnswerCard({
               Candidate&apos;s Answer
             </h4>
             <p className="text-sm text-foreground whitespace-pre-wrap rounded-lg bg-subtle/60 px-3 py-2">
-              {answer.answer_text || <span className="italic text-muted-foreground">No answer provided</span>}
+              {answer.transcript || answer.answer_text || <span className="italic text-muted-foreground">No answer provided</span>}
             </p>
           </div>
 

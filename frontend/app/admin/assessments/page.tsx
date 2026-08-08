@@ -7,7 +7,7 @@ import Card from "@/components/ui/Card";
 import Table from "@/components/ui/Table";
 import Button from "@/components/ui/Button";
 import Pagination from "@/components/ui/Pagination";
-import { getAssessments, type Assessment, type PaginationMeta } from "@/lib/api";
+import { getAssessments, getQuestionSets, type Assessment, type PaginationMeta, type QuestionSet } from "@/lib/api";
 
 function AssessmentsContent() {
   const router = useRouter();
@@ -17,16 +17,27 @@ function AssessmentsContent() {
   const [currentPage, setCurrentPage] = useState(pageParam);
 
   const [assessments, setAssessments] = useState<Assessment[]>([]);
+  const [questionSets, setQuestionSets] = useState<Record<string, string>>({});
   const [meta, setMeta] = useState<PaginationMeta>({ currentPage: 1, totalPages: 1, totalItems: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
-    getAssessments(currentPage)
-      .then((res) => {
+    Promise.all([
+      getAssessments(currentPage),
+      getQuestionSets().catch(() => [])
+    ])
+      .then(([res, sets]) => {
         setAssessments(res.data);
         setMeta(res.meta);
+
+        const setsMap: Record<string, string> = {};
+        sets.forEach(s => {
+          setsMap[s.id] = s.name;
+        });
+        setQuestionSets(setsMap);
+
         setLoading(false);
       })
       .catch((err) => {
@@ -70,12 +81,12 @@ function AssessmentsContent() {
     );
   }
 
-  const tableHeaders = ["Title", "Time Limit (min)", "Question Set ID", "ID", "Candidates"];
+  const tableHeaders = ["Title", "Time Limit (min)", "Question Set", "ID", "Candidates"];
 
   const tableRows = assessments.map((a) => [
     a.title,
     a.time_limit_min ?? "—",
-    a.question_set_id,
+    questionSets[a.question_set_id] || a.question_set_id,
     <span key={a.id} className="text-xs text-gray-400 font-mono">
       {a.id.slice(0, 8)}…
     </span>,
