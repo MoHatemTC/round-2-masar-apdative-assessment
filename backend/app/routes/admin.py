@@ -55,6 +55,10 @@ class AssessmentResponse(BaseModel):
     question_set_id: UUID
     competency_ids: list[UUID]
     time_limit_min: int | None = 30
+
+
+class AssessmentDetailResponse(AssessmentResponse):
+    """Single-assessment response includes share_token (not exposed on the list)."""
     share_token: str | None = None
 
 # =========================================================
@@ -262,7 +266,7 @@ async def set_competencies(
 
 @router.post(
     "/assessments",
-    response_model=AssessmentResponse,
+    response_model=AssessmentDetailResponse,
 )
 async def create_assessment(
     payload: AssessmentCreate,
@@ -465,3 +469,25 @@ async def create_invitation(
         "token": token,
         "status": status
     }
+
+
+# =========================================================
+# Session deletion (with proctoring storage purge)
+# =========================================================
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(session_id: str, db: AsyncClient = Depends(get_db)):
+    """Delete a session and purge its proctoring images from storage.
+
+    Purge runs BEFORE the row delete so CASCADE hasn't removed the
+    capture rows we need to enumerate storage paths.
+    """
+    from app.routes.proctoring import purge_proctoring_storage
+
+    session = await db.table("sessions").select("id").eq("id", session_id).maybe_single().execute()
+    if not session or not session.data:
+        raise HTTPException(status_code=404, detail="Session not found.")
+
+    purged = await purge_proctoring_storage(db, session_id)
+    await db.table("sessions").delete().eq("id", session_id).execute()
+    return {"ok": True, "storage_objects_purged": purged}

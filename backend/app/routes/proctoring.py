@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 from collections import defaultdict, deque
 
 logger = logging.getLogger(__name__)
@@ -164,7 +165,7 @@ async def upload_reference(
     data = await file.read()
     _validate_jpeg(file, data, MAX_REFERENCE_BYTES)
 
-    path = f"{session_id}/reference.jpg"
+    path = f"{session_id}/reference-{uuid.uuid4()}.jpg"
 
     # --- Window-bounding: allow retake only before any frames exist ----------
     existing = (

@@ -50,6 +50,9 @@ _cors_origins = [
     if o.strip()
 ]
 
+if "*" in _cors_origins:
+    raise RuntimeError("CORS_ORIGINS=* cannot be combined with allow_credentials=True")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,

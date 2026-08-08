@@ -142,9 +142,12 @@ def _coerce_verdict(v: Any) -> dict[str, Any]:
 
 
 def _strip_think_tags(text: str) -> str:
-    """Remove <think>...</think> blocks that reasoning models (e.g. Qwen) emit."""
+    """Remove <think>...</think> blocks that reasoning models (e.g. Qwen) emit.
+    Also removes unclosed <think> blocks (truncated reasoning)."""
     import re
-    return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    text = re.sub(r"<think>.*$", "", text, flags=re.DOTALL)  # truncated
+    return text.strip()
 
 
 def _parse_verdicts(text: str, n_expected: int) -> list[dict[str, Any]]:
