@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   turn,
   type ToolResult,
@@ -18,6 +18,7 @@ import RegistrationGate from "./RegistrationGate";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import RatingScale from "@/components/ui/RatingScale";
+import FrameCaptureRecorder from "@/components/proctoring/FrameCaptureRecorder";
 
 type Step = "loading" | "invalid-link" | "register" | "welcome" | "intake" | "loop" | "done";
 
@@ -61,14 +62,16 @@ function clearSavedSession(token: string) {
 }
 
 export default function AssessFlow() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
+  const resumeSessionId = searchParams.get("session_id");
 
   const [step, setStep] = useState<Step>("loading");
   const [assessment, setAssessment] = useState<AssessmentInfo | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [sessionId, setSessionId] = useState("");
+  const [sessionId, setSessionId] = useState(resumeSessionId ?? "");
   const [candidateName, setCandidateName] = useState("");
   const [candidateEmail, setCandidateEmail] = useState("");
   const [ratings, setRatings] = useState<Record<string, number>>({});
@@ -81,9 +84,10 @@ export default function AssessFlow() {
   const [done, setDone] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loopError, setLoopError] = useState<string | null>(null);
+  const [flushTick, setFlushTick] = useState(0);
 
   // Step 1: resolve the share-link token into which assessment + competencies to show.
-  // Step 1: resolve the share-link token into which assessment + competencies to show.
+  // If returning from consent with a session_id, skip straight to intake.
   useEffect(() => {
     if (!token) {
       setStep("invalid-link");
@@ -105,13 +109,17 @@ export default function AssessFlow() {
     getAssessmentByToken(token)
       .then((info) => {
         setAssessment(info);
-        if (!resumed) setStep("register");
+        if (resumeSessionId) {
+          setStep("intake");
+        } else if (!resumed) {
+          setStep("register");
+        }
       })
       .catch((err) => {
         setLoadError(err instanceof Error ? err.message : "Could not load this assessment link.");
         if (!resumed) setStep("invalid-link");
       });
-  }, [token]);
+  }, [token, resumeSessionId]);
 
   async function beginIntake() {
     if (!assessment) return;
@@ -120,7 +128,10 @@ export default function AssessFlow() {
       const { session_id } = await startSession(assessment.assessment_id, token ?? undefined, candidateName, candidateEmail);
       setSessionId(session_id);
       if (token) saveSession(token, session_id, null, null);
-      setStep("intake");
+      // Redirect to consent + reference photo flow before starting the assessment.
+      router.push(
+        `/assess/consent?session_id=${encodeURIComponent(session_id)}&token=${encodeURIComponent(token ?? "")}`,
+      );
     } catch (err) {
       setIntakeError(err instanceof Error ? err.message : "Could not start the assessment.");
     } finally {
@@ -175,6 +186,7 @@ useEffect(() => {
 }, [deadlineAt]);
 
   async function next(toolResult?: ToolResult) {
+    setFlushTick((t) => t + 1); // flush proctoring frames on each submit
     setIsSubmitting(true);
     setLoopError(null);
     try {
@@ -343,6 +355,14 @@ useEffect(() => {
 
   return (
     <main className="max-w-2xl mx-auto p-8">
+      {/* Proctoring: capture frames every ~20s during the Q&A phase */}
+      <FrameCaptureRecorder
+        sessionId={sessionId}
+        questionNumber={(question as any)?.question_number ?? null}
+        isActive={step === "loop" && !done}
+        flushSignal={flushTick}
+      />
+
       {/* <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">
         Take the assessment
       </h1> */}
