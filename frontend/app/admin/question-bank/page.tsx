@@ -110,7 +110,21 @@ async function handleFileSelected(
     }
     try {
       const r = await importBank(items, setName.trim() || undefined);
-      setMsg(`Imported ${r.questions} questions` + (r.set ? ` → set "${r.set.name}" (${r.set.item_count})` : ""));
+      if (!r.success) {
+        setErr(
+          `Import rejected: ` +
+            r.errors
+              .slice(0, 5)
+              .map((e) => `row ${e.row} ${e.field}: ${e.message}`)
+              .join("; ") +
+            (r.errors.length > 5 ? ` (+${r.errors.length - 5} more)` : "")
+        );
+        setIsImporting(false);
+        return;
+      }
+      setMsg(
+        `Imported ${r.questions_imported} questions, ${r.competencies_imported} competencies, ${r.question_set_items_imported} set items`
+      );
       setJson("");
       setSetName("");
       setLoadingQuestions(true);

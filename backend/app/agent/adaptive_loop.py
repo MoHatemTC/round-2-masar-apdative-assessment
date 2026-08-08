@@ -339,7 +339,10 @@ async def grade(db, session: dict, state: dict, tool_result: dict) -> None:
 
     cid = q.get("competency_id")
     pc = state["per_competency"][cid]
-    pc["used_ids"].append(str(q.get("id")))
+    # Only bank questions have ids; used_ids is the never-repeat list the selector excludes,
+    # and a generated question is never in the bank to be re-selected anyway.
+    if q.get("id"):
+        pc["used_ids"].append(str(q.get("id")))
     pc["questions_asked"] += 1
 
     t_types = pc.get("asked_types", {})
@@ -481,6 +484,11 @@ async def finalize(db, session: dict, state: dict) -> dict:
             send_report_background(
                 db,
                 to=candidate_email,
+                # Required so the send is attributable in email_logs, same as the admin
+                # notification below. Omitting it raised TypeError inside finalize(), which
+                # 500'd the final /chat/turn — the candidate answered everything and then
+                # failed at the last step.
+                session_id=str(session["id"]),
                 overall_pct=report_row.get("overall_pct", 0),
                 band=report_row.get("level_label", "Unknown"),
                 has_low_confidence=report_row.get("has_low_confidence", False)

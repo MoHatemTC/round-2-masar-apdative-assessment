@@ -26,7 +26,10 @@ export default function AdminNav() {
         <Link href="/admin/question-bank" className={linkClasses}>
           Questions
         </Link>
-        <Link href="/admin/invitations">
+        <Link href="/admin/sessions" className={linkClasses}>
+          Sessions
+        </Link>
+        <Link href="/admin/invitations" className={linkClasses}>
           Invitations
         </Link>
       </div>

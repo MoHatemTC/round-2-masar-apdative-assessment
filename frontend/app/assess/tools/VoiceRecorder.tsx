@@ -178,7 +178,9 @@ async function submitWhatWeHave(isAutoSubmit = false) {
 
   const formData = new FormData();
   formData.append("duration_ms", String(finalDurationRef.current));
-  formData.append("question_id", question.id);
+  // Generated (bank-exhaustion) questions have no bank row and therefore no id; the
+  // server treats a missing id as "not a bank question" and grades from session state.
+  if (question.id) formData.append("question_id", question.id);
 
   if (finalBlobRef.current) {
     formData.append("audio", finalBlobRef.current, "answer.webm");
@@ -211,7 +213,9 @@ async function submitWhatWeHave(isAutoSubmit = false) {
 
   const formData = new FormData();
   formData.append("duration_ms", "0");
-  formData.append("question_id", question.id);
+  // Generated (bank-exhaustion) questions have no bank row and therefore no id; the
+  // server treats a missing id as "not a bank question" and grades from session state.
+  if (question.id) formData.append("question_id", question.id);
   formData.append("skipped", "true");
 
   const result = await postVoiceAnswer(formData);

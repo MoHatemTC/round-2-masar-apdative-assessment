@@ -40,6 +40,12 @@ export default function MonacoEditor({
     setCode(starterCode);
   }, [starterCode]);
 
+  // Hidden test cases are stripped before a question reaches the browser; only the
+  // question's public_test_cases (if it defines any) arrive as `test_cases`. Without
+  // that guard an empty list runs zero tests and the sandbox honestly reports
+  // pass_rate 0 — which reads to a candidate as "your code failed" when nothing ran.
+  const hasSampleTests = testCases.length > 0;
+
   async function handleRun() {
     setRunning(true);
 
@@ -124,13 +130,23 @@ export default function MonacoEditor({
       <div className="flex items-center justify-between">
         <span className="text-xs text-gray-500 dark:text-gray-400">
           {code.length} characters
+          {!hasSampleTests && (
+            <span className="ml-2">
+              · No sample tests for this question — your submission is graded against hidden tests.
+            </span>
+          )}
         </span>
 
         <div className="flex gap-3">
           <button
             type="button"
             onClick={handleRun}
-            disabled={isSubmitting || running}
+            disabled={isSubmitting || running || !hasSampleTests}
+            title={
+              hasSampleTests
+                ? "Run your code against the sample tests"
+                : "This question has no sample tests — submit to be graded"
+            }
             className="rounded-md border border-blue-600 px-4 py-2 text-sm font-medium text-blue-600 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-neutral-800"
           >
             {running ? "Running..." : "▶ Run"}
