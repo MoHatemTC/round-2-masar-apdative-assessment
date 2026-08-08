@@ -52,6 +52,8 @@ _cors_origins = [
 
 if "*" in _cors_origins:
     raise RuntimeError("CORS_ORIGINS=* cannot be combined with allow_credentials=True")
+if not _cors_origins:
+    raise RuntimeError("CORS_ORIGINS is empty — at least one origin is required")
 
 app.add_middleware(
     CORSMiddleware,

@@ -143,10 +143,17 @@ def _coerce_verdict(v: Any) -> dict[str, Any]:
 
 def _strip_think_tags(text: str) -> str:
     """Remove <think>...</think> blocks that reasoning models (e.g. Qwen) emit.
-    Also removes unclosed <think> blocks (truncated reasoning)."""
+    Also handles unclosed <think> blocks (truncated reasoning) by keeping
+    any JSON array that follows the dangling reasoning text."""
     import re
+    # 1. Remove properly closed <think>...</think> blocks
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
-    text = re.sub(r"<think>.*$", "", text, flags=re.DOTALL)  # truncated
+    # 2. Handle unclosed <think> — keep JSON that follows it if present
+    m = re.search(r"<think>(?!.*</think>)", text, flags=re.DOTALL)
+    if m:
+        rest = text[m.end():]
+        i = rest.find("[")
+        text = rest[i:] if i != -1 else ""
     return text.strip()
 
 

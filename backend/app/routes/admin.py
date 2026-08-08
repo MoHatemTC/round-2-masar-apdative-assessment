@@ -7,7 +7,7 @@ Admin API:
 """
 
 from __future__ import annotations
-from fastapi import APIRouter, Body, HTTPException, Depends
+from fastapi import APIRouter, Body, HTTPException, Depends, Request
 from pydantic import BaseModel
 from uuid import UUID
 import os
@@ -548,13 +548,38 @@ async def create_invitation(
 # Session deletion (with proctoring storage purge)
 # =========================================================
 
+_ADMIN_SECRET = os.environ.get("ADMIN_SECRET", "")
+
+
+def _require_admin(request: Request):
+    """Lightweight shared-secret guard for destructive admin endpoints.
+
+    All admin reads are already unauthenticated (pre-existing), but destructive
+    operations (DELETE) must not be callable by arbitrary clients. The proper fix
+    is a full auth layer; this is a stopgap that makes the endpoint unreachable
+    without the secret, while keeping the router consistent.
+    """
+    if not _ADMIN_SECRET:
+        raise HTTPException(
+            status_code=503,
+            detail="ADMIN_SECRET is not configured — destructive admin endpoints are disabled.",
+        )
+    token = request.headers.get("x-admin-secret", "")
+    if token != _ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Invalid or missing admin secret.")
+
+
 @router.delete("/sessions/{session_id}")
-async def delete_session(session_id: str, db: AsyncClient = Depends(get_db)):
+async def delete_session(session_id: str, request: Request, db: AsyncClient = Depends(get_db)):
     """Delete a session and purge its proctoring images from storage.
+
+    Requires the ``x-admin-secret`` header to match the ``ADMIN_SECRET``
+    environment variable — a lightweight guard until a proper auth layer lands.
 
     Purge runs BEFORE the row delete so CASCADE hasn't removed the
     capture rows we need to enumerate storage paths.
     """
+    _require_admin(request)
     from app.routes.proctoring import purge_proctoring_storage
 
     session = await db.table("sessions").select("id").eq("id", session_id).maybe_single().execute()
