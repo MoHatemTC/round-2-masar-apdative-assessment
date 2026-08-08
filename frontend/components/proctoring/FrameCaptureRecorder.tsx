@@ -142,7 +142,7 @@ export default function FrameCaptureRecorder({
   async function captureOne() {
     if (!videoRef.current || !streamRef.current) return;
     try {
-      const { blob } = await captureJpegFromVideo(videoRef.current, 640, 0.82);
+      const { blob } = await captureJpegFromVideo(videoRef.current, 320, 0.7);
       bufferRef.current.push({
         blob,
         timestamp: Date.now(),

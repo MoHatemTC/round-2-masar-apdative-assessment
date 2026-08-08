@@ -32,8 +32,8 @@ logger = logging.getLogger(__name__)
 # ---- Tunables --------------------------------------------------------------
 
 POLL_INTERVAL_S = 10           # how often the worker wakes up
-BATCH_SIZE = 4                 # frames analyzed per vision call
-CALLS_PER_SESSION = 40         # hard ceiling per session (cost cap)
+BATCH_SIZE = 1                 # frames analyzed per vision call (Groq free tier: 8K TPM)
+CALLS_PER_SESSION = 200        # hard ceiling per session (cost cap)
 SAMPLE_EVERY = 1               # 1 = analyze every pending frame; 2 = every other; etc.
 MAX_ATTEMPTS = 3               # transient failures: pending -> pending -> failed
 
@@ -141,9 +141,16 @@ def _coerce_verdict(v: Any) -> dict[str, Any]:
     }
 
 
+def _strip_think_tags(text: str) -> str:
+    """Remove <think>...</think> blocks that reasoning models (e.g. Qwen) emit."""
+    import re
+    return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+
+
 def _parse_verdicts(text: str, n_expected: int) -> list[dict[str, Any]]:
     """
-    Parse the model's JSON output. Tolerates ```json fences and leading/trailing prose.
+    Parse the model's JSON output. Tolerates ```json fences, leading/trailing prose,
+    and <think>...</think> reasoning blocks (Qwen, DeepSeek, etc.).
     If parsing fails or the array length is wrong, returns a list of low-confidence
     'unknown' verdicts so we still record something instead of losing the row.
     Each element is coerced to the expected shape (defends against malformed
@@ -152,7 +159,10 @@ def _parse_verdicts(text: str, n_expected: int) -> list[dict[str, Any]]:
     default = [{**_DEFAULT_VERDICT} for _ in range(n_expected)]
     if not text:
         return default
-    cleaned = text.strip()
+    # Strip reasoning blocks first — they contain brackets that confuse the parser.
+    cleaned = _strip_think_tags(text).strip()
+    if not cleaned:
+        return default
     if cleaned.startswith("```"):
         cleaned = cleaned.strip("`")
         # drop optional "json" tag right after the fence

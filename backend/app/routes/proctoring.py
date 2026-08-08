@@ -25,8 +25,11 @@ Hardening applied:
 """
 from __future__ import annotations
 
+import logging
 import time
 from collections import defaultdict, deque
+
+logger = logging.getLogger(__name__)
 from typing import Deque, Dict, List, Tuple
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -267,9 +270,11 @@ async def upload_frame_batch(
         m = form.get(f"meta_{i}")
         if f is None or m is None:
             break
-        if not isinstance(f, UploadFile) or not isinstance(m, str):
+        if not hasattr(f, "read") or not isinstance(m, (str, bytes)):
             skipped.append(f"file_{i}:bad_form_shape")
             continue
+        if isinstance(m, bytes):
+            m = m.decode()
         try:
             data = await f.read()
             _validate_jpeg(f, data, MAX_FILE_BYTES)
@@ -300,6 +305,9 @@ async def upload_frame_batch(
     await db.table("proctoring_batches").insert(
         {"batch_id": batch_id, "session_id": session_id, "frame_count": len(accepted)}
     ).execute()
+
+    if skipped:
+        logger.warning("Frames skipped for session %s: %s", session_id, skipped)
 
     status_code = 200 if not skipped else 202
     return JSONResponse(

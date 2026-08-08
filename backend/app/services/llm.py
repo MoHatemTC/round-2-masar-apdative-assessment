@@ -14,6 +14,9 @@ import asyncio
 import logging
 from typing import Iterable
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from openai import AsyncOpenAI, APIError, APITimeoutError
 from app.db import get_db
 
@@ -126,7 +129,10 @@ async def call_llm_vision(
                 messages=[{"role": "user", "content": content}],
                 max_completion_tokens=MAX_TOKENS,
             )
-            response_text = response.choices[0].message.content
+            # Some models (Qwen3) put the answer in .content and reasoning
+            # in .reasoning_content. Fall back to reasoning if content is empty.
+            msg = response.choices[0].message
+            response_text = msg.content or getattr(msg, "reasoning_content", None) or ""
             await _safe_log(session_id=session_id, kind="vision", prompt=prompt, response=response_text)
             return {"success": True, "text": response_text, "error": None}
         except (APIError, APITimeoutError) as e:

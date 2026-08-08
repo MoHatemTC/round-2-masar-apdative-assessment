@@ -28,3 +28,16 @@ patches/
 Thumbs.db
 .idea/
 .vscode/
+
+# Debug / utility scripts (not part of the app)
+backend/check_captures.py
+backend/fix_pending.py
+backend/show_analysis.py
+backend/check_ai_logs.py
+backend/reset_for_reanalysis.py
+backend/debug_response.py
+backend/debug_response2.py
+backend/check_call_count.py
+backend/cleanup_and_retry.py
+backend/list_groq_models.py
+backend/run_vision_test.py
