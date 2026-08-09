@@ -118,7 +118,7 @@ async def call_llm_vision(
         b64 = base64.b64encode(img).decode("ascii")
         content.append({
             "type": "image_url",
-            "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
+            "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "low"},
         })
 
     last_error = None
@@ -130,7 +130,7 @@ async def call_llm_vision(
                     {"role": "system", "content": "You are a JSON-only API. Never use <think> tags or any reasoning blocks. Output ONLY the requested JSON array, nothing else."},
                     {"role": "user", "content": content},
                 ],
-                max_completion_tokens=MAX_TOKENS * 2,
+                max_completion_tokens=1024,
             )
             # Some models (Qwen3) put the answer in .content and reasoning
             # in .reasoning_content. Fall back to reasoning if content is empty.
