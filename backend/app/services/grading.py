@@ -4,7 +4,10 @@ MCQ is deterministic (no LLM). Voice/visualization/open-ended go through
 rubric grading via the LLM. Coding is not implemented yet.
 """
 from __future__ import annotations
+import logging
 import re
+
+logger = logging.getLogger(__name__)
 from app.services.llm import call_llm
 from app.services.sandbox import run_code
 from app.services.sandbox_validation import (
@@ -86,10 +89,7 @@ async def grade_answer(tool_type: str, question: dict, tool_result: dict, sessio
             code=request.code,
             test_cases=request.test_cases,
         )
-        print("\n" + "=" * 80)
-        print("SANDBOX RESULT")
-        print(sandbox)
-        print("=" * 80 + "\n")
+        logger.debug("SANDBOX RESULT: %s", sandbox)
 
         # Sandbox provider unavailable
         if sandbox["provider_failed"]:

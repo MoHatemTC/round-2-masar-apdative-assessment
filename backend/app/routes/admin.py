@@ -8,7 +8,7 @@ Admin API:
 
 from __future__ import annotations
 import math
-from fastapi import APIRouter, Body, HTTPException, Depends, Query
+from fastapi import APIRouter, Body, HTTPException, Depends, Query, Request
 from pydantic import BaseModel
 from uuid import UUID
 import os
@@ -63,6 +63,11 @@ class AssessmentResponse(BaseModel):
     question_set_id: UUID
     competency_ids: list[UUID]
     time_limit_min: int | None = 30
+
+
+class AssessmentDetailResponse(AssessmentResponse):
+    """Single-assessment response includes share_token (not exposed on the list)."""
+    share_token: str | None = None
 
 # =========================================================
 # Invitation Schemas
@@ -224,11 +229,11 @@ async def import_bank(
     }
 
 
-
 @router.get("/competency-tracks")
 async def list_competency_tracks(db: AsyncClient = Depends(get_db)):
     result = await db.table("competencies").select("id, name, code").order("name").execute()
     return result.data or []
+
 
 # =========================================================
 # Question Set Competencies
@@ -287,6 +292,7 @@ async def set_competencies(
 
     return measured_ids
 
+
 # =========================================================
 # Create Assessment
 # =========================================================
@@ -294,21 +300,17 @@ async def set_competencies(
 
 @router.post(
     "/assessments",
-    response_model=AssessmentResponse,
+    response_model=AssessmentDetailResponse,
 )
 async def create_assessment(
     payload: AssessmentCreate,
     db: AsyncClient = Depends(get_db),
 ):
 
-
-
     competency_ids = await set_competencies(
         str(payload.question_set_id),
         db,
     )
-
-
 
     new_assessment = {
 
@@ -339,6 +341,7 @@ async def create_assessment(
         raise HTTPException(status_code=500, detail="Failed to create assessment")
 
     return insert_response.data[0]
+
 
 @router.get("/assessments")
 async def list_assessments(
@@ -537,6 +540,7 @@ async def list_invitations(
         },
     }
 
+
 # =========================================================
 # Invitations
 # =========================================================
@@ -604,3 +608,50 @@ async def create_invitation(
         "token": token,
         "status": status
     }
+
+
+# =========================================================
+# Session deletion (with proctoring storage purge)
+# =========================================================
+
+_ADMIN_SECRET = os.environ.get("ADMIN_SECRET", "")
+
+
+def _require_admin(request: Request):
+    """Lightweight shared-secret guard for destructive admin endpoints.
+
+    All admin reads are already unauthenticated (pre-existing), but destructive
+    operations (DELETE) must not be callable by arbitrary clients. The proper fix
+    is a full auth layer; this is a stopgap that makes the endpoint unreachable
+    without the secret, while keeping the router consistent.
+    """
+    if not _ADMIN_SECRET:
+        raise HTTPException(
+            status_code=503,
+            detail="ADMIN_SECRET is not configured — destructive admin endpoints are disabled.",
+        )
+    token = request.headers.get("x-admin-secret", "")
+    if token != _ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Invalid or missing admin secret.")
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(session_id: str, request: Request, db: AsyncClient = Depends(get_db)):
+    """Delete a session and purge its proctoring images from storage.
+
+    Requires the ``x-admin-secret`` header to match the ``ADMIN_SECRET``
+    environment variable — a lightweight guard until a proper auth layer lands.
+
+    Purge runs BEFORE the row delete so CASCADE hasn't removed the
+    capture rows we need to enumerate storage paths.
+    """
+    _require_admin(request)
+    from app.routes.proctoring import purge_proctoring_storage
+
+    session = await db.table("sessions").select("id").eq("id", session_id).maybe_single().execute()
+    if not session or not session.data:
+        raise HTTPException(status_code=404, detail="Session not found.")
+
+    purged = await purge_proctoring_storage(db, session_id)
+    await db.table("sessions").delete().eq("id", session_id).execute()
+    return {"ok": True, "storage_objects_purged": purged}
