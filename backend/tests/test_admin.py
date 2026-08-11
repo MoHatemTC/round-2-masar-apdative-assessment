@@ -18,7 +18,11 @@ class DummyDB:
         self.current_table = name
         return self
 
-    def select(self, *args):
+    def select(self, *args, count: str = None, **kwargs):
+        self.count = 100
+        return self
+
+    def range(self, *args, **kwargs):
         return self
 
     def eq(self, *args):
@@ -36,6 +40,7 @@ class DummyDB:
             pass
 
         res = Response()
+        res.count = getattr(self, "count", None)
 
         if self.current_table == "question_set_items":
             res.data = [] if self.is_failure_test else [{"question_id": "q123"}]

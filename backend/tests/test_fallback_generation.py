@@ -11,6 +11,7 @@ async def test_generate_fallback_question(monkeypatch):
             "success": True,
             "text": """
 {
+    "id": "dummy-id",
     "body":"Explain polymorphism.",
     "tool_type":"voice",
     "difficulty":3,

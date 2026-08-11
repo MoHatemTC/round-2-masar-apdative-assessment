@@ -166,6 +166,10 @@ class FakeQuery:
         self._single = True
         return self
 
+    def maybe_single(self) -> "FakeQuery":
+        self._single = True
+        return self
+
 
        # -----------------------------------------------------
     # Helpers
