@@ -96,7 +96,7 @@ def test_all_admin_routes():
             success_res = client.post("/admin/assessments", json=success_payload)
             assert success_res.status_code == 200
             assert fake_db.inserted["title"] == "Good Assessment"
-            assert TRACK_ID in success_res.json()["competency_ids"]
+            assert SUB_ID in success_res.json()["competency_ids"]
 
             fake_db.inserted = None
             invalid_email_payload = {
@@ -130,7 +130,7 @@ def test_all_admin_routes():
             fake_db.inserted = None
             list_res = client.get(f"/admin/assessments/{assessment_id}/invitations")
             assert list_res.status_code == 200
-            items = list_res.json()
+            items = list_res.json()["data"]
             assert len(items) == 3
 
             status_map = {item["candidate_email"]: item["status"] for item in items}
