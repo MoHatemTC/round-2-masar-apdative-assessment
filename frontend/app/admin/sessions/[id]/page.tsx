@@ -255,7 +255,7 @@ function AnswerCard({
 
         {/* Tool type badge */}
         <span className="hidden sm:inline-flex items-center rounded-md bg-subtle px-2 py-0.5 text-[11px] font-medium text-subtle-foreground capitalize">
-          {answer.tool_type.replace(/_/g, " ")}
+          {answer.tool_type === "visualization" ? "Data Analysis" : answer.tool_type.replace(/_/g, " ")}
         </span>
 
         {/* Score pill */}
@@ -297,7 +297,7 @@ function AnswerCard({
               Candidate&apos;s Answer
             </h4>
             <p className="text-sm text-foreground whitespace-pre-wrap rounded-lg bg-subtle/60 px-3 py-2">
-              {answer.answer_text || <span className="italic text-muted-foreground">No answer provided</span>}
+              {answer.transcript || answer.answer_text || <span className="italic text-muted-foreground">No answer provided</span>}
             </p>
           </div>
 

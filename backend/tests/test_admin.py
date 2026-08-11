@@ -18,7 +18,11 @@ class DummyDB:
         self.current_table = name
         return self
 
-    def select(self, *args):
+    def select(self, *args, count: str = None, **kwargs):
+        self.count = 100
+        return self
+
+    def range(self, *args, **kwargs):
         return self
 
     def eq(self, *args):
@@ -36,6 +40,7 @@ class DummyDB:
             pass
 
         res = Response()
+        res.count = getattr(self, "count", None)
 
         if self.current_table == "question_set_items":
             res.data = [] if self.is_failure_test else [{"question_id": "q123"}]
@@ -91,7 +96,7 @@ def test_all_admin_routes():
             success_res = client.post("/admin/assessments", json=success_payload)
             assert success_res.status_code == 200
             assert fake_db.inserted["title"] == "Good Assessment"
-            assert TRACK_ID in success_res.json()["competency_ids"]
+            assert SUB_ID in success_res.json()["competency_ids"]
 
             fake_db.inserted = None
             invalid_email_payload = {
@@ -125,7 +130,7 @@ def test_all_admin_routes():
             fake_db.inserted = None
             list_res = client.get(f"/admin/assessments/{assessment_id}/invitations")
             assert list_res.status_code == 200
-            items = list_res.json()
+            items = list_res.json()["data"]
             assert len(items) == 3
 
             status_map = {item["candidate_email"]: item["status"] for item in items}

@@ -54,6 +54,17 @@ export interface Assessment {
   time_limit_min: number | null;
 }
 
+export interface PaginationMeta {
+  currentPage: number;
+  totalPages: number;
+  totalItems: number;
+}
+
+export interface PaginatedResponse<T> {
+  data: T[];
+  meta: PaginationMeta;
+}
+
 export interface AssessmentCreate {
   title: string;
   question_set_id: string;
@@ -105,7 +116,8 @@ export interface AnswerDetail {
   tool_type: string;
   score: number;
   rationale: string;
-  answer_text: string;
+  answer_text: string | null;
+  transcript?: string | null;
   flagged: boolean;
 }
 
@@ -256,8 +268,8 @@ export async function importBank(
   });
 }
 
-export async function getAssessments(): Promise<Assessment[]> {
-  return apiRequest<Assessment[]>("/admin/assessments");
+export async function getAssessments(page: number = 1, limit: number = 10): Promise<PaginatedResponse<Assessment>> {
+  return apiRequest<PaginatedResponse<Assessment>>(`/admin/assessments?page=${page}&limit=${limit}`);
 }
 
 // A row in the admin sessions list (GET /admin/sessions). Score and band come from
@@ -276,19 +288,39 @@ export interface Session {
   has_low_confidence: boolean | null;
 }
 
-export async function getSessions(assessmentId?: string): Promise<Session[]> {
-  const query = assessmentId
-    ? `?assessment_id=${encodeURIComponent(assessmentId)}`
-    : "";
-  return apiRequest<Session[]>(`/admin/sessions${query}`);
+export async function getSessions(assessmentId?: string, page: number = 1): Promise<PaginatedResponse<Session>> {
+  const params = new URLSearchParams();
+  if (assessmentId) params.append("assessment_id", assessmentId);
+  params.append("page", String(page));
+  return apiRequest<PaginatedResponse<Session>>(`/admin/sessions?${params.toString()}`);
 }
 
-export async function getInvitations(assessmentId: string): Promise<Invitation[]> {
-  return apiRequest<Invitation[]>(`/admin/assessments/${assessmentId}/invitations`);
+export async function getInvitations(assessmentId: string, page: number = 1): Promise<PaginatedResponse<Invitation>> {
+  return apiRequest<PaginatedResponse<Invitation>>(`/admin/assessments/${assessmentId}/invitations?page=${page}`);
 }
 
 export async function getCompetencies(setId: string): Promise<string[]> {
   return apiRequest<string[]>(`/admin/question-sets/${setId}/competencies`);
+}
+
+export interface QuestionSet {
+  id: string;
+  name: string;
+  description?: string | null;
+}
+
+export async function getQuestionSets(): Promise<QuestionSet[]> {
+  return apiRequest<QuestionSet[]>("/admin/question-sets/");
+}
+
+export interface CompetencyTrack {
+  id: string;
+  name: string;
+  code?: string;
+}
+
+export async function getCompetencyTracks(): Promise<CompetencyTrack[]> {
+  return apiRequest<CompetencyTrack[]>("/admin/competency-tracks");
 }
 
 export async function createAssessment(payload: AssessmentCreate): Promise<Assessment> {
@@ -379,7 +411,7 @@ export async function browseQuestions(filters?: {
   tool_type?: string;
   competency?: string;
   difficulty?: number;
-}): Promise<QuestionBrowserItem[]> {
+}, page: number = 1): Promise<PaginatedResponse<QuestionBrowserItem>> {
   const params = new URLSearchParams();
 
   if (filters?.tool_type)
@@ -391,10 +423,10 @@ export async function browseQuestions(filters?: {
   if (filters?.difficulty)
     params.append("difficulty", String(filters.difficulty));
 
-  const query = params.toString();
+  params.append("page", String(page));
 
-  return apiRequest<QuestionBrowserItem[]>(
-    `/questions${query ? `?${query}` : ""}`
+  return apiRequest<PaginatedResponse<QuestionBrowserItem>>(
+    `/questions?${params.toString()}`
   );
 }
 

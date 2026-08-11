@@ -1,28 +1,80 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState, useRef, useMemo } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
+import Pagination from "@/components/ui/Pagination";
 import {
   getInvitations,
   getAssessments,
   sendInvitation,
   type Invitation,
-  type Assessment
+  type Assessment,
+  type PaginationMeta,
 } from "@/lib/api";
 
 export default function InvitationsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
 
+  const pageParam = Number(searchParams.get("page")) || 1;
+  const [currentPage, setCurrentPage] = useState(pageParam);
+
   const [invitations, setInvitations] = useState<Invitation[]>([]);
+  const [meta, setMeta] = useState<PaginationMeta>({ currentPage: 1, totalPages: 1, totalItems: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [assessments, setAssessments] = useState<Assessment[]>([]);
   const [selectedAssessment, setSelectedAssessment] = useState("");
   const [msg, setMsg] = useState("");
   const [sending, setSending] = useState(false);
+
+  const [assessmentSearchTerm, setAssessmentSearchTerm] = useState("");
+  const [assessmentDropdownOpen, setAssessmentDropdownOpen] = useState(false);
+  const assessmentComboboxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (assessmentComboboxRef.current && !assessmentComboboxRef.current.contains(e.target as Node)) {
+        setAssessmentDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const filteredAssessments = useMemo(() => {
+    if (!assessmentSearchTerm.trim()) return assessments;
+    const lower = assessmentSearchTerm.toLowerCase();
+    return assessments.filter(
+      (a) => a.title.toLowerCase().includes(lower)
+    );
+  }, [assessments, assessmentSearchTerm]);
+
+  const selectedAssessmentTitle = useMemo(() => {
+    const found = assessments.find((a) => a.id === selectedAssessment);
+    return found?.title || "";
+  }, [assessments, selectedAssessment]);
+
+  function handleSelectAssessment(a: Assessment) {
+    handleAssessmentChange(a.id);
+    setAssessmentSearchTerm(a.title);
+    setAssessmentDropdownOpen(false);
+  }
+
+  function handleAssessmentInputChange(value: string) {
+    setAssessmentSearchTerm(value);
+    setAssessmentDropdownOpen(true);
+  }
+
+  function handleAssessmentInputFocus() {
+    setAssessmentDropdownOpen(true);
+    if (selectedAssessment && selectedAssessmentTitle) {
+      setAssessmentSearchTerm(selectedAssessmentTitle);
+    }
+  }
 
   const handleRowClick = (invite: Invitation, e: React.MouseEvent) => {
     const isTaken = invite.status === "taken";
@@ -40,8 +92,8 @@ export default function InvitationsPage() {
   };
 
   useEffect(() => {
-    getAssessments()
-        .then(setAssessments)
+    getAssessments(1, 100)
+        .then((res) => setAssessments(res.data))
         .catch((err) =>
             setError(
                 err instanceof Error
@@ -54,15 +106,17 @@ export default function InvitationsPage() {
   useEffect(() => {
     if (!selectedAssessment) {
         setInvitations([]);
+        setMeta({ currentPage: 1, totalPages: 1, totalItems: 0 });
         setLoading(false);
         return;
     }
 
     setLoading(true);
 
-    getInvitations(selectedAssessment)
-        .then((data) => {
-            setInvitations(data);
+    getInvitations(selectedAssessment, currentPage)
+        .then((res) => {
+            setInvitations(res.data);
+            setMeta(res.meta);
             setError(null);
         })
         .catch((err) => {
@@ -73,7 +127,27 @@ export default function InvitationsPage() {
             );
         })
         .finally(() => setLoading(false));
-  }, [selectedAssessment]);
+  }, [selectedAssessment, currentPage]);
+
+  function handleAssessmentChange(value: string) {
+    setSelectedAssessment(value);
+    setCurrentPage(1);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("page", "1");
+    if (value) {
+      params.set("assessmentId", value);
+    } else {
+      params.delete("assessmentId");
+    }
+    router.push(`?${params.toString()}`, { scroll: false });
+  }
+
+  function handlePageChange(page: number) {
+    setCurrentPage(page);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("page", String(page));
+    router.push(`?${params.toString()}`, { scroll: false });
+  }
 
 async function handleInvite() {
   setSending(true);
@@ -85,8 +159,9 @@ async function handleInvite() {
 
     setEmail("");
 
-    const updated = await getInvitations(selectedAssessment);
-    setInvitations(updated);
+    const updated = await getInvitations(selectedAssessment, currentPage);
+    setInvitations(updated.data);
+    setMeta(updated.meta);
 
     setMsg("Invitation sent successfully.");
   } catch (err) {
@@ -121,28 +196,56 @@ async function handleInvite() {
           Send Invitation
         </h2>
 
-        <select
-            value={selectedAssessment}
-            onChange={(e) => setSelectedAssessment(e.target.value)}
-            className="w-full rounded-md border border-gray-300 bg-white p-2 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-        >
-            {assessments.length === 0 ? (
-                <option value="">No assessments available</option>
-            ) : (
-                <>
-                    <option value="">Select Assessment</option>
-
-                    {assessments.map((assessment) => (
-                        <option
-                            key={assessment.id}
-                            value={assessment.id}
-                        >
-                            {assessment.title}
-                        </option>
-                    ))}
-                </>
+        <div className="flex flex-col gap-1.5 z-10 relative">
+          <div ref={assessmentComboboxRef} className="relative">
+            <input
+              type="text"
+              value={assessmentSearchTerm}
+              onChange={(e) => handleAssessmentInputChange(e.target.value)}
+              onFocus={handleAssessmentInputFocus}
+              placeholder={assessments.length === 0 ? "Loading assessments..." : "Search and select assessment..."}
+              className={
+                "w-full rounded-md border border-gray-300 bg-white p-2 text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white pr-8"
+              }
+            />
+            {selectedAssessment && !assessmentDropdownOpen && (
+              <button
+                type="button"
+                onClick={() => {
+                  handleAssessmentChange("");
+                  setAssessmentSearchTerm("");
+                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                  <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                </svg>
+              </button>
             )}
-        </select>
+            {assessmentDropdownOpen && (
+              <ul className="absolute z-50 mt-1 max-h-56 w-full overflow-auto rounded-md border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-800">
+                {filteredAssessments.length === 0 ? (
+                  <li className="px-3 py-2 text-sm text-gray-500 italic dark:text-gray-400">
+                    No assessments found.
+                  </li>
+                ) : (
+                  filteredAssessments.map((a) => (
+                    <li
+                      key={a.id}
+                      onClick={() => handleSelectAssessment(a)}
+                      className={
+                        "flex cursor-pointer flex-col px-3 py-2 text-sm transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 " +
+                        (a.id === selectedAssessment ? "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 font-medium" : "text-gray-900 dark:text-gray-100")
+                      }
+                    >
+                      <span>{a.title}</span>
+                    </li>
+                  ))
+                )}
+              </ul>
+            )}
+          </div>
+        </div>
 
         <input
           type="email"
@@ -170,7 +273,7 @@ async function handleInvite() {
 
             <span className="text-sm text-gray-500 dark:text-gray-400">
                 {selectedAssessment
-                    ? `${invitations.length} invitation${invitations.length !== 1 ? "s" : ""}`
+                    ? `${meta.totalItems} invitation${meta.totalItems !== 1 ? "s" : ""}`
                     : "No assessment selected"}
             </span>
         </div>
@@ -260,6 +363,11 @@ async function handleInvite() {
 
         </table>
         </div>
+        <Pagination
+          currentPage={meta.currentPage}
+          totalPages={meta.totalPages}
+          onPageChange={handlePageChange}
+        />
       </Card>
 
       {msg && (

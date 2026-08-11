@@ -12,6 +12,7 @@ Pure API layer.
 FastAPI -> Supabase
 """
 
+import math
 from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from supabase import AsyncClient
@@ -30,6 +31,8 @@ async def browse_questions(
     tool_type: Optional[str] = Query(None),
     competency: Optional[str] = Query(None),
     difficulty: Optional[int] = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
     db: AsyncClient = Depends(get_supabase),
 ):
     """
@@ -47,6 +50,27 @@ async def browse_questions(
 
     /questions?difficulty=3
     """
+
+    count_query = (
+        db.table("question_bank")
+        .select("*", count="exact")
+        .eq("is_active", True)
+    )
+
+    if tool_type:
+        count_query = count_query.eq("tool_type", tool_type)
+
+    if difficulty is not None:
+        count_query = count_query.eq("difficulty", difficulty)
+
+    if competency:
+        count_query = count_query.eq("competency_id", competency)
+
+    count_response = await count_query.execute()
+    total_items = count_response.count or 0
+    total_pages = max(1, math.ceil(total_items / limit))
+
+    offset = (page - 1) * limit
 
     query = (
         db.table("question_bank")
@@ -81,7 +105,7 @@ async def browse_questions(
             competency,
         )
 
-    result = await query.execute()
+    result = await query.range(offset, offset + limit - 1).execute()
 
     items = []
 
@@ -101,7 +125,14 @@ async def browse_questions(
             }
         )
     
-    return items
+    return {
+        "data": items,
+        "meta": {
+            "currentPage": page,
+            "totalPages": total_pages,
+            "totalItems": total_items,
+        },
+    }
 
 @router.get("/competencies")
 async def list_competencies(

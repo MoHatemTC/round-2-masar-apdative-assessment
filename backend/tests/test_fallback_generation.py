@@ -11,6 +11,7 @@ async def test_generate_fallback_question(monkeypatch):
             "success": True,
             "text": """
 {
+    "id": "dummy-id",
     "body":"Explain polymorphism.",
     "tool_type":"voice",
     "difficulty":3,
@@ -38,7 +39,8 @@ async def test_generate_fallback_question(monkeypatch):
     assert q["competency_id"] == "java"
     assert "body" in q
     assert q["payload"]["evaluation_criteria"]
-    assert q["id"]
+    assert q["id"] is None
+    assert q["is_generated"] is True
 
 
 @pytest.mark.asyncio

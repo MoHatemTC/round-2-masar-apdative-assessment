@@ -114,15 +114,15 @@ def test_erratic_candidate_hits_question_cap():
 
     sequence = [
         (5, Difficulty.HARD),
+        (5, Difficulty.EASY),
+        (0, Difficulty.MEDIUM),
+        (5, Difficulty.MEDIUM),
         (0, Difficulty.EASY),
-        (5, Difficulty.HARD),
         (1, Difficulty.EASY),
-        (4, Difficulty.HARD),
-        (2, Difficulty.MEDIUM),
-        (5, Difficulty.HARD),
-        (0, Difficulty.EASY),
         (4, Difficulty.MEDIUM),
-        (2, Difficulty.MEDIUM),
+        (1, Difficulty.MEDIUM),
+        (1, Difficulty.MEDIUM),
+        (3, Difficulty.EASY),
     ]
 
     result = run_sequence(sequence)

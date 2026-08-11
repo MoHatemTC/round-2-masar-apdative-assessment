@@ -18,23 +18,29 @@ from .types import Difficulty, LEVELS
 
 # Expected score for each level (1-5), rescaled onto the FULL 0-5 score range.
 #
-# BUGFIX: this used to be an identity mapping ({1: 1.0, ..., 5: 5.0}), which is
-# asymmetric — scores span 6 values (0..5) but levels only span 5 (1..5), so a
-# perfect score (5, HARD -> adjusted 5.5) landed only 0.5 away from level 5's
-# expected value, while a zero score (0, EASY -> adjusted -0.5) landed a full 1.5
-# away from level 1's expected value. That asymmetry meant "acing a hard question"
-# produced a far sharper, more dominant vote than "failing an easy question"
-# produced against it, so one strong early answer could never be overturned by a
-# later contradicting one — an inconsistent (erratic) candidate would incorrectly
-# look "stable" and converge on noise instead of exhausting the question cap.
-# Rescaling to (level - 1) makes both ends of the score range symmetric around
-# their nearest level.
+# The mapping must span the entire [0, 5] score range so that extreme scores
+# (0 and 5) are equally sharp evidence for their respective levels (1 and 5).
+#
+# History of fixes:
+#   v1  {1:1, 2:2, 3:3, 4:4, 5:5} — identity mapping.  Score 0 landed 1.0
+#       away from level 1, but score 5 landed 0.0 away from level 5.
+#       Bottom-of-scale bias: failing was weaker evidence than acing.
+#
+#   v2  {1:0, 2:1, 3:2, 4:3, 5:4} — shifted by (level-1).  Fixed the bottom
+#       but introduced top-of-scale bias: score 5 now landed 1.0 away from
+#       level 5 (expected 4), while score 0 landed 0.0 from level 1.
+#       Result: a zero was always stronger evidence than a five, pulling
+#       erratic candidates toward level 1 with false confidence.
+#
+#   v3  {1:0, 2:1.25, 3:2.5, 4:3.75, 5:5.0} — evenly spaced across [0, 5].
+#       Score 0 ↔ level 1 and score 5 ↔ level 5 are now perfectly symmetric
+#       (distance = 0.0 in both cases).  This is the current (correct) mapping.
 _EXPECTED_SCORE = {
     1: 0.0,
-    2: 1.0,
-    3: 2.0,
-    4: 3.0,
-    5: 4.0,
+    2: 1.25,
+    3: 2.5,
+    4: 3.75,
+    5: 5.0,
 }
 
 

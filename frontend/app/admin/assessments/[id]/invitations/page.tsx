@@ -1,34 +1,49 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useEffect, useState, Suspense } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Card from "@/components/ui/Card";
 import Table from "@/components/ui/Table";
 import Button from "@/components/ui/Button";
 import StatusBadge from "@/components/ui/StatusBadge";
-import { getInvitations, type Invitation } from "@/lib/api";
+import Pagination from "@/components/ui/Pagination";
+import { getInvitations, type Invitation, type PaginationMeta } from "@/lib/api";
 
-export default function InvitationsPage() {
+function InvitationsContent() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const assessmentId = params.id;
 
+  const pageParam = Number(searchParams.get("page")) || 1;
+  const [currentPage, setCurrentPage] = useState(pageParam);
+
   const [invitations, setInvitations] = useState<Invitation[]>([]);
+  const [meta, setMeta] = useState<PaginationMeta>({ currentPage: 1, totalPages: 1, totalItems: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!assessmentId) return;
-    getInvitations(assessmentId)
-      .then((data) => {
-        setInvitations(data);
+    setLoading(true);
+    getInvitations(assessmentId, currentPage)
+      .then((res) => {
+        setInvitations(res.data);
+        setMeta(res.meta);
         setLoading(false);
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : "Failed to load invitations");
         setLoading(false);
       });
-  }, [assessmentId]);
+  }, [assessmentId, currentPage]);
+
+  function handlePageChange(page: number) {
+    setCurrentPage(page);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("page", String(page));
+    router.push(`?${params.toString()}`, { scroll: false });
+  }
 
   if (loading) {
     return (
@@ -187,7 +202,20 @@ export default function InvitationsPage() {
             </tbody>
           </table>
         </div>
+        <Pagination
+          currentPage={meta.currentPage}
+          totalPages={meta.totalPages}
+          onPageChange={handlePageChange}
+        />
       </Card>
     </div>
+  );
+}
+
+export default function InvitationsPage() {
+  return (
+    <Suspense fallback={<div className="p-6 sm:p-10"><Card><div className="flex items-center justify-center py-12"><div className="h-6 w-6 animate-spin rounded-full border-2 border-border border-t-primary" /><span className="ml-3 text-sm text-muted-foreground">Loading…</span></div></Card></div>}>
+      <InvitationsContent />
+    </Suspense>
   );
 }

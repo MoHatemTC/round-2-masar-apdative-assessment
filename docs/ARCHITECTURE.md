@@ -83,6 +83,7 @@ turn (stateless server, resumable client).
 - `MAX_QUESTIONS = 10` per competency
 - `STABLE_WINDOW = 3` (same level 3 estimates in a row → done)
 - Confidence ceiling by question count `{1:0.5, 2:0.7, 3:0.85}` else `0.97` — so one answer can't trigger the stop; it must probe ~4+.
+  - **Note**: The `STABLE_WINDOW = 3` rule can still stop at q3 if the same level is estimated three consecutive times. This is intentional — three identical estimates constitute strong convergence evidence even though the raw confidence is clamped at 0.85. The "~4+" minimum applies specifically to confidence-based stopping.
 
 ## Bank exhaustion
 If a competency's bank runs dry before it converges, **keep generating open-ended questions** (never MCQ — an
