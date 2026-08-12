@@ -16,6 +16,7 @@ import os
 
 from app.routes import admin, candidate_intake, chat, sandbox, transcribe, proctoring
 from app.workers.proctoring_worker import start_worker, stop_worker
+from app.middleware import TimingMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,7 @@ app = FastAPI(
 
 _cors_origins = [
     o.strip()
-    for o in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+    for o in os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
     if o.strip()
 ]
 
@@ -62,6 +63,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.add_middleware(TimingMiddleware)
 
 
 @app.exception_handler(Exception)

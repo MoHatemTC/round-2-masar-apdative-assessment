@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Editor from "@monaco-editor/react";
+import Button from "@/components/ui/Button";
 import { runSandbox } from "@/lib/api";
 
 interface MonacoEditorProps {
@@ -137,29 +138,23 @@ export default function MonacoEditor({
           )}
         </span>
 
-        <div className="flex gap-3">
-          <button
-            type="button"
+        <div className="flex flex-col-reverse sm:flex-row gap-3 pt-1">
+          <Button
+            variant="secondary"
             onClick={handleRun}
             disabled={isSubmitting || running || !hasSampleTests}
-            title={
-              hasSampleTests
-                ? "Run your code against the sample tests"
-                : "This question has no sample tests — submit to be graded"
-            }
-            className="rounded-md border border-blue-600 px-4 py-2 text-sm font-medium text-blue-600 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-neutral-800"
+            className="w-full sm:w-auto"
           >
             {running ? "Running..." : "▶ Run"}
-          </button>
+          </Button>
 
-          <button
-            type="button"
+          <Button
             onClick={handleSubmit}
             disabled={isSubmitting || running}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="w-full sm:w-auto sm:ml-auto"
           >
-            {isSubmitting ? "Submitting..." : "Submit"}
-          </button>
+            {isSubmitting ? "Submitting..." : "Submit Answer"}
+          </Button>
         </div>
       </div>
 

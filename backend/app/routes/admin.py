@@ -353,7 +353,7 @@ async def list_assessments(
     Queries the database for all created assessments
     and returns them to the admin dashboard.
     """
-    count_response = await db.table("assessments").select("*", count="exact").execute()
+    count_response = await db.table("assessments").select("id", count="estimated").limit(0).execute()
     total_items = count_response.count or 0
     total_pages = max(1, math.ceil(total_items / limit))
 
@@ -384,10 +384,10 @@ async def list_sessions(
     still running simply have those fields null. Optional `assessment_id` narrows the list
     to one assessment.
     """
-    count_query = db.table("sessions").select("*", count="exact")
+    count_query = db.table("sessions").select("id", count="estimated")
     if assessment_id:
         count_query = count_query.eq("assessment_id", assessment_id)
-    count_response = await count_query.execute()
+    count_response = await count_query.limit(0).execute()
     total_items = count_response.count or 0
     total_pages = max(1, math.ceil(total_items / limit))
 
@@ -495,7 +495,7 @@ async def list_invitations(
     db: AsyncClient = Depends(get_db),
 ):
     """Lists invitations and cross-references session status for each candidate."""
-    count_response = await db.table("invitations").select("*", count="exact").eq("assessment_id", str(assessment_id)).execute()
+    count_response = await db.table("invitations").select("id", count="estimated").eq("assessment_id", str(assessment_id)).limit(0).execute()
     total_items = count_response.count or 0
     total_pages = max(1, math.ceil(total_items / limit))
 

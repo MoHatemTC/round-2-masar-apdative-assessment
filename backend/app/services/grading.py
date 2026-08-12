@@ -207,7 +207,12 @@ RATIONALE: <one sentence only>
         or payload.get("expected_insights")
         or payload.get("rubric")
     )
-    answer = tool_result.get("transcript") or tool_result.get("answer_text") or ""
+    answer = (
+        tool_result.get("transcript")
+        or tool_result.get("answer_text")
+        or tool_result.get("insights_text")
+        or ""
+    )
 
     lower = answer.lower()
 

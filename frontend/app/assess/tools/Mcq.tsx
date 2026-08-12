@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Button from "@/components/ui/Button";
 
 // Types match the payload shape from schemas/question_types.py
 export interface McqOption {
@@ -32,8 +33,8 @@ export default function Mcq({ question, onSubmit, isSubmitting = false }: McqPro
     onSubmit({ selected_id: selected });
   };
   const handleSkip = () => {
-  if (isSubmitting) return;
-  onSubmit({ skipped: true });
+    if (isSubmitting) return;
+    onSubmit({ skipped: true });
   };
 
   return (
@@ -48,10 +49,9 @@ export default function Mcq({ question, onSubmit, isSubmitting = false }: McqPro
           <label
             key={option.id}
             className={`flex items-center gap-3 p-3 rounded-md border cursor-pointer transition-colors
-              ${
-                selected === option.id
-                  ? "border-blue-500 bg-blue-50 dark:bg-blue-950"
-                  : "border-gray-200 dark:border-neutral-700 hover:bg-gray-50 dark:hover:bg-neutral-800"
+              ${selected === option.id
+                ? "border-blue-500 bg-blue-50 dark:bg-blue-950"
+                : "border-gray-200 dark:border-neutral-700 hover:bg-gray-50 dark:hover:bg-neutral-800"
               }`}
           >
             <input
@@ -67,25 +67,17 @@ export default function Mcq({ question, onSubmit, isSubmitting = false }: McqPro
         ))}
       </fieldset>
 
-      <div className="mt-6 flex flex-wrap gap-3">
-        <button
-          type="button"
+      <div className="mt-4 flex flex-col-reverse sm:flex-row gap-3">
+        <Button variant="secondary" onClick={handleSkip} disabled={isSubmitting} className="w-full sm:w-auto">
+          Skip
+        </Button>
+        <Button
           onClick={handleSubmit}
           disabled={isSubmitting || selected === null}
-          className="flex-1 sm:flex-none px-4 py-2 rounded-md bg-blue-600 text-white font-medium
-            disabled:opacity-50 disabled:cursor-not-allowed
-            hover:bg-blue-700 dark:hover:bg-blue-500 transition-colors"
+          className="w-full sm:w-auto sm:ml-auto"
         >
           {isSubmitting ? "Submitting…" : "Submit Answer"}
-        </button>
-        <button
-          type="button"
-          onClick={handleSkip}
-          disabled={isSubmitting}
-          className="px-4 py-2 rounded-md border border-gray-300 dark:border-neutral-700 text-sm"
-        >
-          Skip
-        </button>
+        </Button>
       </div>
     </div>
   );

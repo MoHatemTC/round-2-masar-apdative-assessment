@@ -16,6 +16,7 @@ import {
   uploadReferencePhoto,
   type QualityResult,
 } from "../../lib/proctoring";
+import Button from "../ui/Button";
 
 interface Props {
   sessionId: string;
@@ -100,12 +101,9 @@ export default function ReferencePhotoCapture({ sessionId, onConfirmed }: Props)
       <div className="max-w-xl mx-auto p-6 space-y-4">
         <h2 className="text-xl font-bold">Camera error</h2>
         <p className="text-red-600 text-sm">{errorMsg}</p>
-        <button
-          onClick={() => window.location.reload()}
-          className="bg-blue-600 hover:bg-blue-700 text-white rounded-md px-4 py-2"
-        >
+        <Button onClick={() => window.location.reload()}>
           Retry
-        </button>
+        </Button>
       </div>
     );
   }
@@ -152,31 +150,32 @@ export default function ReferencePhotoCapture({ sessionId, onConfirmed }: Props)
         </div>
       )}
 
-      <div className="flex gap-3">
+      <div className="flex flex-col sm:flex-row gap-3">
         {phase === "preview" && (
-          <button
+          <Button
             onClick={handleCapture}
-            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white rounded-md py-2.5 font-medium"
+            className="flex-1"
           >
             Capture
-          </button>
+          </Button>
         )}
 
         {phase === "review" && captured && (
           <>
-            <button
+            <Button
+              variant="secondary"
               onClick={handleRetake}
-              className="flex-1 bg-white border border-gray-300 hover:bg-gray-50 text-gray-800 rounded-md py-2.5 font-medium"
+              className="flex-1"
             >
               Retake
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={handleConfirm}
               disabled={!captured.quality.ok}
-              className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-md py-2.5 font-medium"
+              className="flex-1"
             >
               Confirm & continue
-            </button>
+            </Button>
           </>
         )}
 
