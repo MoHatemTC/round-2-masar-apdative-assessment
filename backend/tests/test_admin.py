@@ -22,6 +22,9 @@ class DummyDB:
         self.count = 100
         return self
 
+    def limit(self, *args, **kwargs):
+        return self
+
     def range(self, *args, **kwargs):
         return self
 
