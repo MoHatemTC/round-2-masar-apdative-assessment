@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 CONFIDENCE_TARGET = 0.90
 MAX_QUESTIONS = 10          # per competency
 STABLE_WINDOW = 3           # same level N times in a row → converged
+STABLE_MIN_CONFIDENCE = 0.60  # "same level 3x" only counts if the posterior isn't still nearly flat
 # Every answer-bearing field, stripped before a question reaches the browser. Covers all tool_types:
 # MCQ key + explanation, coding tests, and the rubric keys the open-ended/voice/data-analysis graders read.
 _ANSWER_KEYS = {"answer_key", "correct_id", "explanation", "test_cases", "expected_output",
@@ -89,9 +90,21 @@ async def run_turn(db, session: dict, state: dict, tool_result: dict | None) -> 
         return await pick_question(db, session, state)
 
     if tool_result is not None and state.get("current_question"):
-        await grade(db, session, state, tool_result)
-        await estimate(db, session, state)
-        await check_convergence(db, session, state)
+        current_q_num = state.get("question_number")
+        # Idempotency guard: a client retry (e.g. dropped response, double-submit)
+        # resends the same question_number. Only grade/estimate/converge once per
+        # question — otherwise questions_asked, used_ids, and asked_types all
+        # double-count for a single real answer.
+        if state.get("last_graded_question_number") != current_q_num:
+            await grade(db, session, state, tool_result)
+            await estimate(db, session, state)
+            await check_convergence(db, session, state)
+            state["last_graded_question_number"] = current_q_num
+        else:
+            logger.info(
+                "Duplicate submission for question_number=%s ignored (idempotent replay)",
+                current_q_num,
+            )
 
     return await pick_question(db, session, state)
 
@@ -217,8 +230,8 @@ async def pick_question(db, session: dict, state: dict) -> dict:
 
     cv_json = session.get("cv_json")
     if q and cv_json:
+        original_question = copy.deepcopy(q)
         try:
-            original_question = copy.deepcopy(q) if q else None
             cv_text = (
                 cv_json.get("raw_text")
                 or cv_json.get("summary")
@@ -231,7 +244,16 @@ async def pick_question(db, session: dict, state: dict) -> dict:
                 session_id=session["id"],
             )
 
-        # Preserve grading fields
+            # Re-inject the original answer-bearing fields. Personalization may
+            # only change wording/framing — it must never be able to alter the
+            # answer key, test cases, or rubric that scoring actually reads.
+            original_payload = original_question.get("payload", {}) or {}
+            merged_payload = dict(personalized.get("payload", {}) or {})
+            for key in _ANSWER_KEYS:
+                if key in original_payload:
+                    merged_payload[key] = original_payload[key]
+            personalized["payload"] = merged_payload
+
             q = personalized
             errors = validate_question_payload(
                 q.get("tool_type"),
@@ -244,7 +266,7 @@ async def pick_question(db, session: dict, state: dict) -> dict:
 
         except Exception as e:
             logger.warning(f"Personalization failed: {e}")
-            q=original_question
+            q = original_question
     
     # 4. Bank exhaustion handling
     if not q:
@@ -278,6 +300,7 @@ async def pick_question(db, session: dict, state: dict) -> dict:
             logger.warning(f"Fallback generation failed: {e}")
             pc["converged"] = True
             pc["converged_reason"] = "fallback_failed"
+            pc["low_confidence"] = True
             state["active_index"] += 1
 
             return await pick_question(
@@ -339,10 +362,7 @@ async def grade(db, session: dict, state: dict, tool_result: dict) -> None:
 
     cid = q.get("competency_id")
     pc = state["per_competency"][cid]
-    # Only bank questions have ids; used_ids is the never-repeat list the selector excludes,
-    # and a generated question is never in the bank to be re-selected anyway.
-    if q.get("id"):
-        pc["used_ids"].append(str(q.get("id")))
+    pc["used_ids"].append(str(q.get("id")))
     pc["questions_asked"] += 1
 
     t_types = pc.get("asked_types", {})
@@ -408,7 +428,7 @@ async def check_convergence(db, session: dict, state: dict) -> None:
         reason = "max_questions"
     elif len(pc["level_history"]) >= STABLE_WINDOW:
         last_levels = pc["level_history"][-STABLE_WINDOW:]
-        if len(set(last_levels)) == 1:
+        if len(set(last_levels)) == 1 and pc["confidence"] >= STABLE_MIN_CONFIDENCE:
             reason = "stable"
 
     # Mark converged and persist snapshot
@@ -484,10 +504,6 @@ async def finalize(db, session: dict, state: dict) -> dict:
             send_report_background(
                 db,
                 to=candidate_email,
-                # Required so the send is attributable in email_logs, same as the admin
-                # notification below. Omitting it raised TypeError inside finalize(), which
-                # 500'd the final /chat/turn — the candidate answered everything and then
-                # failed at the last step.
                 session_id=str(session["id"]),
                 overall_pct=report_row.get("overall_pct", 0),
                 band=report_row.get("level_label", "Unknown"),
@@ -512,5 +528,6 @@ async def finalize(db, session: dict, state: dict) -> dict:
         "overall_pct": report_row.get("overall_pct"),
         "level_label": report_row.get("level_label"),
         "has_low_confidence": report_row.get("has_low_confidence", False),
+        "candidate_name": session.get("candidate_name"),
     }
     return state

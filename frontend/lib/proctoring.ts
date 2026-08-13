@@ -87,12 +87,12 @@ export function checkFrameQuality(canvas: HTMLCanvasElement): QualityResult {
 
 export function qualityHint(issues: QualityIssue[]): string {
   if (issues.includes("resolution_too_low"))
-    return "الصورة دقتها منخفضة، قرّب الكاميرا شوية.";
+    return "The image resolution is too low, please move closer to the camera.";
   if (issues.includes("too_dark"))
-    return "الإضاءة قليلة، حاول تبقى في مكان مضيء أكتر.";
+    return "The lighting is too low, please move to a brighter place.";
   if (issues.includes("too_bright"))
-    return "فيه إضاءة شديدة ورا ظهرك، جرب تبعد عن الشباك.";
-  return "الصورة تمام.";
+    return "There is strong lighting behind you, try moving away from the window.";
+  return "The image looks good.";
 }
 
 // ---------- Compression -----------------------------------------------------

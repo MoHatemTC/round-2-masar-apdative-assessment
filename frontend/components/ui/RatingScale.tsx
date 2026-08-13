@@ -22,10 +22,10 @@ export default function RatingScale({ label, value, onChange, disabled = false }
             aria-checked={value === n}
             disabled={disabled}
             onClick={() => onChange(n)}
-            className={`h-10 w-10 rounded-md border text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+            className={`h-10 w-10 inline-flex items-center justify-center rounded-md border text-sm font-medium transition-all duration-150 ease-out select-none active:translate-y-px disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none disabled:shadow-none ${
               value === n
-                ? "bg-blue-600 border-blue-600 text-white"
-                : "border-gray-300 dark:border-neutral-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-neutral-800"
+                ? "bg-primary text-primary-foreground border-transparent shadow-sm hover:bg-[color:var(--primary-hover)] hover:shadow-md"
+                : "bg-card text-foreground border-border hover:bg-subtle hover:border-[color:var(--accent-strong)]/50"
             }`}
           >
             {n}

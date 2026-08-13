@@ -95,9 +95,10 @@ async def _count_session_calls(db: AsyncClient, session_id: str) -> int:
     """How many vision calls have we already logged for this session? (cost cap)"""
     res = (
         await db.table("ai_logs")
-        .select("id", count="exact")
+        .select("id", count="estimated")
         .eq("session_id", session_id)
         .eq("kind", "vision")
+        .limit(0)
         .execute()
     )
     return res.count or 0

@@ -53,7 +53,7 @@ async def browse_questions(
 
     count_query = (
         db.table("question_bank")
-        .select("*", count="exact")
+        .select("id", count="estimated")
         .eq("is_active", True)
     )
 
@@ -66,7 +66,7 @@ async def browse_questions(
     if competency:
         count_query = count_query.eq("competency_id", competency)
 
-    count_response = await count_query.execute()
+    count_response = await count_query.limit(0).execute()
     total_items = count_response.count or 0
     total_pages = max(1, math.ceil(total_items / limit))
 

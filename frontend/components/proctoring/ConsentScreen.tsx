@@ -6,6 +6,7 @@
 "use client";
 
 import { useState } from "react";
+import Button from "../ui/Button";
 
 interface Props {
   onAccept: () => Promise<void> | void;
@@ -35,27 +36,28 @@ export default function ConsentScreen({ onAccept, onDecline }: Props) {
         </ul>
       </div>
 
-      <div className="flex gap-3">
-        <button
+      <div className="flex flex-col sm:flex-row gap-3">
+        <Button
           disabled={busy}
           onClick={async () => {
             setBusy(true);
             try { await onAccept(); } finally { setBusy(false); }
           }}
-          className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-md py-2.5 font-medium"
+          className="flex-1"
         >
           I agree — enable monitoring
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="secondary"
           disabled={busy}
           onClick={async () => {
             setBusy(true);
             try { await onDecline(); } finally { setBusy(false); }
           }}
-          className="flex-1 bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 text-gray-800 rounded-md py-2.5 font-medium"
+          className="flex-1"
         >
           Decline
-        </button>
+        </Button>
       </div>
 
       <p className="text-xs text-gray-500">

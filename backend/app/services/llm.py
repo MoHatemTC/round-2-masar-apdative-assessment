@@ -29,6 +29,7 @@ VALID_KINDS = {"personalize", "grade", "cv_estimate", "stt", "generate", "vision
 
 _client: AsyncOpenAI | None = None
 _stt_client: AsyncOpenAI | None = None
+_vision_client: AsyncOpenAI | None = None
 
 
 def _get_client() -> AsyncOpenAI | None:
@@ -57,6 +58,20 @@ def _get_stt_client() -> AsyncOpenAI | None:
             return None
         _stt_client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=60.0)
     return _stt_client
+
+
+def _get_vision_client() -> AsyncOpenAI | None:
+    """Lazily build the vision client using VISION_LLM_BASE_URL / VISION_LLM_API_KEY.
+    Falls back to the default grading client if vision-specific creds aren't set."""
+    global _vision_client
+    if _vision_client is None:
+        base_url = os.environ.get("VISION_LLM_BASE_URL")
+        api_key = os.environ.get("VISION_LLM_API_KEY")
+        if not base_url or not api_key:
+            # Fall back to the general LLM client
+            return _get_client()
+        _vision_client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=120.0)
+    return _vision_client
 
 
 MODEL = os.environ.get("LLM_MODEL", "")
@@ -108,10 +123,10 @@ async def call_llm_vision(
     Multimodal call: text prompt + one or more JPEG images.
     Returns: {"success": bool, "text": str | None, "error": str | None}
     """
-    client = _get_client()
+    client = _get_vision_client()
     if client is None:
-        logger.warning("Vision call skipped — LLM not configured.")
-        return {"success": False, "text": None, "error": "LLM is not configured."}
+        logger.warning("Vision call skipped — VISION_LLM (and LLM fallback) not configured.")
+        return {"success": False, "text": None, "error": "Vision LLM is not configured."}
 
     content: list[dict] = [{"type": "text", "text": prompt}]
     for img in images:

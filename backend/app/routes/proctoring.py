@@ -182,9 +182,10 @@ async def upload_reference(
         # assessment hasn't started — i.e. before any frames have been captured.
         frames = (
             await db.table("proctoring_captures")
-            .select("id", count="exact")
+            .select("id", count="estimated")
             .eq("session_id", session_id)
             .eq("kind", "frame")
+            .limit(0)
             .execute()
         )
         if frames.count:

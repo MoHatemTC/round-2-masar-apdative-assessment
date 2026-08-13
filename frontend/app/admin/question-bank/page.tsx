@@ -208,6 +208,7 @@ function QuestionBankContent() {
               <option value="coding">Coding</option>
               <option value="voice">Voice</option>
               <option value="visualization">Data Analysis</option>
+              <option value="text">Text</option>
             </select>
           </div>
 
